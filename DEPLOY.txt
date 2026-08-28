@@ -1,0 +1,27 @@
+GITHUB PE AISE UPLOAD KARO (bahut important):
+
+1. Repo root me YE files seedha honi chahiye (koi andar ka folder NAHI):
+
+   index.html
+   sw.js
+   manifest.json
+   favicon.svg
+   .nojekyll
+   icons/icon-192.png
+   icons/icon-512.png
+
+2. Galat example:
+   Attendance/attendance-app/index.html   ← Install nahi aayega
+
+3. Settings → Pages → Branch: main → Folder: / (root)
+
+4. Phone pe check:
+   https://USERNAME.github.io/REPO/manifest.json   ← JSON dikhna chahiye
+   https://USERNAME.github.io/REPO/sw.js           ← code dikhna chahiye
+   https://USERNAME.github.io/REPO/icons/icon-192.png  ← image dikhni chahiye
+
+5. Agar "Create shortcut" + letter "G" aaye:
+   icons upload nahi hue YA galat path pe hain.
+   Icons fix karke phir Chrome site data clear karke try karo.
+
+6. "Install app" aane ke baad hi real PWA install hota hai.

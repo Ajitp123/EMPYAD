@@ -1,0 +1,1296 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Attendance Report - STAFF (COM.OP)</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" id="appleIcon" href="icons/icon-192.png">
+  <link rel="manifest" id="manifestLink" href="manifest.json">
+  <meta name="theme-color" content="#2c5282">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Attendance">
+  <script>
+    // Fix paths for GitHub Pages project sites ( /RepoName/ )
+    (function(){
+      var path = location.pathname;
+      var base = path.endsWith('/') ? path : path.replace(/\/[^\/]*$/, '/');
+      if(!base || base === '/') base = './';
+      window.APP_BASE = base;
+      var man = document.getElementById('manifestLink');
+      if(man) man.href = base + 'manifest.json';
+      var ap = document.getElementById('appleIcon');
+      if(ap) ap.href = base + 'icons/icon-192.png';
+    })();
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #e8eef5; color: #222; padding: 12px; min-height: 100vh; }
+    .container { max-width: 1150px; margin: 0 auto; background: #fff; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.12); overflow: hidden; }
+    header { background: linear-gradient(135deg, #1a365d 0%, #2c5282 100%); color: #fff; padding: 14px 20px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+    header h1 { font-size: 1.25rem; font-weight: 600; }
+    header .sub { font-size: 0.8rem; opacity: 0.9; }
+    .tabs { display: flex; background: #2c5282; border-bottom: 3px solid #1a365d; overflow-x: auto; }
+    .tab-btn { padding: 11px 18px; background: transparent; border: none; color: #bee3f8; font-size: 0.9rem; font-weight: 600; cursor: pointer; white-space: nowrap; border-bottom: 3px solid transparent; margin-bottom: -3px; transition: all 0.15s; }
+    .tab-btn:hover { color: #fff; background: rgba(255,255,255,0.08); }
+    .tab-btn.active { color: #fff; border-bottom-color: #f6e05e; background: rgba(255,255,255,0.1); }
+    .tab-panel { display: none; padding: 0; }
+    .tab-panel.active { display: block; }
+    .controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 16px; background: #f7fafc; border-bottom: 1px solid #e2e8f0; }
+    .controls label { font-size: 0.85rem; font-weight: 500; color: #4a5568; }
+    select, input[type="text"], input[type="number"], input[type="password"] { padding: 6px 10px; border: 1px solid #cbd5e0; border-radius: 6px; font-size: 0.85rem; background: #fff; }
+    select:focus, input:focus { outline: none; border-color: #3182ce; box-shadow: 0 0 0 2px rgba(49,130,206,0.2); }
+    .btn { padding: 7px 14px; border: none; border-radius: 6px; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+    .btn-primary { background: #2b6cb0; color: #fff; }
+    .btn-primary:hover { background: #2c5282; }
+    .btn-success { background: #276749; color: #fff; }
+    .btn-success:hover { background: #22543d; }
+    .btn-danger { background: #c53030; color: #fff; }
+    .btn-danger:hover { background: #9b2c2c; }
+    .btn-outline { background: #fff; border: 1px solid #cbd5e0; color: #4a5568; }
+    .btn-outline:hover { background: #edf2f7; }
+    .table-wrap { overflow-x: auto; padding: 10px; }
+    table.att { width: 100%; border-collapse: collapse; font-size: 0.75rem; min-width: 920px; }
+    table.att th, table.att td { border: 1px solid #a0aec0; padding: 3px 2px; text-align: center; vertical-align: middle; }
+    table.att th { background: #2c5282; color: #fff; font-weight: 600; position: sticky; top: 0; z-index: 2; }
+    table.att th.day-header { min-width: 26px; font-size: 0.65rem; }
+    table.att td.name-cell { text-align: left; padding: 3px 6px; min-width: 150px; background: #f7fafc; font-weight: 500; }
+    table.att td.code-cell { min-width: 52px; background: #edf2f7; font-weight: 600; }
+    table.att td.desig-cell { min-width: 65px; background: #e2e8f0; color: #4a5568; font-weight: 600; font-size: 0.72rem; }
+    table.att input.att-input { width: 26px; height: 22px; text-align: center; border: 1px solid #cbd5e0; border-radius: 3px; font-size: 0.72rem; font-weight: 600; padding: 0; }
+    table.att input.att-input:focus { border-color: #3182ce; outline: none; background: #ebf8ff; }
+    table.att input.name-input, table.att input.code-input { width: 100%; border: 1px solid transparent; background: transparent; font-size: 0.75rem; font-weight: 500; padding: 1px 3px; }
+    table.att input.name-input:focus, table.att input.code-input:focus { border-color: #3182ce; background: #fff; outline: none; }
+    table.att tr:nth-child(even) td.name-cell, table.att tr:nth-child(even) td.code-cell { background: #e2e8f0; }
+    table.att .summary-cell { font-weight: 700; background: #feebc8 !important; min-width: 32px; }
+    table.att .salary-cell { font-weight: 700; background: #c6f6d5 !important; min-width: 58px; color: #22543d; }
+    table.att input.att-input.cell-a,
+    table.att input.att-input.cell-l { background: #fed7d7 !important; color: #9b2c2c; border-color: #fc8181; }
+    table.att input.att-input.cell-db { background: #c6f6d5 !important; color: #22543d; border-color: #68d391; }
+    table.att input.att-input.cell-h { background: #bee3f8 !important; color: #2b6cb0; border-color: #63b3ed; }
+    table.att .salary-cell.top-salary { background: #f6e05e !important; color: #744210; box-shadow: inset 0 0 0 2px #d69e2e; }
+    table.summary tr.row-top-salary td { background: #fefcbf !important; font-weight: 700; }
+    table.summary tr.row-top-salary td:last-child { background: #f6e05e !important; color: #744210; }
+    .sheet-footer { padding: 10px 16px 14px; text-align: center; font-size: 0.85rem; color: #2c5282; font-weight: 600; border-top: 1px solid #e2e8f0; letter-spacing: 0.5px; }
+    table.rates { width: 100%; max-width: 720px; border-collapse: collapse; margin: 16px; font-size: 0.9rem; }
+    table.rates th, table.rates td { border: 1px solid #a0aec0; padding: 8px 10px; text-align: left; }
+    table.rates th { background: #2c5282; color: #fff; }
+    table.rates input[type="number"] { width: 110px; }
+    .panel-body { padding: 16px; }
+    .panel-body h3 { margin-bottom: 12px; color: #2c5282; font-size: 1.1rem; }
+    table.summary { width: 100%; border-collapse: collapse; font-size: 0.8rem; margin-top: 10px; margin-bottom: 20px; }
+    table.summary th, table.summary td { border: 1px solid #a0aec0; padding: 5px 6px; text-align: center; }
+    table.summary th { background: #2c5282; color: #fff; font-size: 0.75rem; }
+    table.summary td.name { text-align: left; font-weight: 500; }
+    table.summary .total-row { background: #ebf8ff; font-weight: 700; }
+    table.summary .emp-header { background: #edf2f7; font-weight: 700; text-align: left; color: #2c5282; }
+    .status { padding: 8px 16px; font-size: 0.85rem; color: #276749; background: #c6f6d5; display: none; }
+    .status.show { display: block; }
+    .status.err { color: #9b2c2c; background: #fed7d7; }
+    .settings-box { max-width: 480px; margin: 16px; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f7fafc; }
+    .settings-box h3 { margin-bottom: 12px; color: #2c5282; }
+    .settings-box p { font-size: 0.85rem; color: #4a5568; margin-bottom: 10px; }
+    .settings-box .row { margin-bottom: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 100; align-items: center; justify-content: center; }
+    .modal-overlay.show { display: flex; }
+    .modal { background: #fff; border-radius: 10px; padding: 24px; width: 90%; max-width: 360px; box-shadow: 0 10px 40px rgba(0,0,0,0.25); }
+    .modal h3 { margin-bottom: 14px; color: #2c5282; }
+    .modal .row { margin-bottom: 12px; display: flex; gap: 10px; align-items: center; }
+    .modal .actions { margin-top: 16px; display: flex; gap: 10px; justify-content: flex-end; }
+    .hint { font-size: 0.8rem; color: #718096; margin: 8px 16px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1>Department : STAFF (COM.OP)</h1>
+        <div class="sub">Attendance + Salary Report (Max 6 Employees)</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <button class="btn btn-success" id="btnInstall" style="display:none;" onclick="triggerInstall()">Install App</button>
+        <span id="installHint" style="font-size:0.75rem;opacity:0.9;"></span>
+      </div>
+    </header>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="att" onclick="switchTab('att')">Attendance</button>
+      <button class="tab-btn" data-tab="rates" onclick="switchTab('rates')">Salary Rates</button>
+      <button class="tab-btn" data-tab="report" onclick="switchTab('report')">Year Summary</button>
+      <button class="tab-btn" data-tab="backup" onclick="switchTab('backup')">Backup</button>
+      <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')">Settings</button>
+    </div>
+
+    <div id="statusMsg" class="status"></div>
+
+    <!-- TAB: Attendance -->
+    <div id="tab-att" class="tab-panel active">
+      <div class="controls">
+        <label>Year:</label>
+        <select id="yearSelect" onchange="changePeriod()"></select>
+        <label>Month:</label>
+        <select id="monthSelect" onchange="changePeriod()"></select>
+        <label>Dept:</label>
+        <input type="text" id="deptName" value="STAFF (COM.OP)" style="width:130px;" onchange="saveData()">
+        <button class="btn btn-primary" onclick="saveData()">Save</button>
+        <button class="btn btn-outline" id="btnUnlock" style="display:none;" onclick="unlockMonth()">Unlock (Password)</button>
+        <span id="lockBadge" style="display:none;margin-left:6px;padding:4px 10px;background:#c53030;color:#fff;border-radius:6px;font-size:0.8rem;font-weight:700;">LOCKED</span>
+      </div>
+      <div class="table-wrap">
+        <table class="att" id="attTable">
+          <thead id="tableHead"></thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+      <div class="sheet-footer">Prepared by : AJEET PARMAR</div>
+    </div>
+
+    <!-- TAB: Salary Rates (per year + month) -->
+    <div id="tab-rates" class="tab-panel">
+      <div class="controls">
+        <label>Year:</label>
+        <select id="rateYear" onchange="renderRates()"></select>
+        <label>Month:</label>
+        <select id="rateMonth" onchange="renderRates()"></select>
+        <button class="btn btn-primary" onclick="saveRates()">Save This Month</button>
+        <button class="btn btn-success" onclick="saveRatesFullYear()">Save Full Year (Jan–Dec)</button>
+        <button class="btn btn-outline" id="btnUnlockRates" style="display:none;" onclick="unlockRatesMonth()">Unlock (Password)</button>
+        <span id="lockBadgeRates" style="display:none;margin-left:6px;padding:4px 10px;background:#c53030;color:#fff;border-radius:6px;font-size:0.8rem;font-weight:700;">LOCKED</span>
+      </div>
+      <div class="panel-body">
+        <h3>Salary Rate (Rs per duty / 8 hours)</h3>
+        <table class="rates">
+          <thead><tr><th>#</th><th>Code</th><th>Name</th><th>Rate (Rs / duty)</th></tr></thead>
+          <tbody id="ratesBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TAB: Year Summary -->
+    <div id="tab-report" class="tab-panel">
+      <div class="controls">
+        <label>Year:</label>
+        <select id="reportYear" onchange="renderYearSummary()"></select>
+        <button class="btn btn-outline" onclick="renderYearSummary()">Refresh</button>
+      </div>
+      <div class="panel-body">
+        <h3>Employee-wise Month H / L / A</h3>
+        <div id="empMonthBox"></div>
+        <h3 style="margin-top:20px;">Employee-wise Year Total + Salary</h3>
+        <div id="empYearBox"></div>
+      </div>
+    </div>
+
+    <!-- TAB: Backup / Restore -->
+    <div id="tab-backup" class="tab-panel">
+      <div class="panel-body">
+        <h3>Backup Data</h3>
+        <p class="hint" style="margin:0 0 12px 0;">Saara attendance + rates + password ek JSON file me download hoga. Phone/PC pe safe rakh lo.</p>
+        <button class="btn btn-success" onclick="backupData()">Download Backup (JSON)</button>
+        <h3 style="margin-top:28px;">Export PDF</h3>
+        <p class="hint" style="margin:0 0 12px 0;">Attendance sheet + Year Summary (sirf named employees).</p>
+        <button class="btn btn-primary" onclick="openExportModal()">Export PDF</button>
+        <h3 style="margin-top:28px;">Restore Data</h3>
+        <p class="hint" style="margin:0 0 12px 0;">Pehle ka backup JSON choose karo. Restore se current data replace ho jayega.</p>
+        <input type="file" id="restoreFile" accept=".json,application/json" style="margin-bottom:10px;">
+        <br>
+        <button class="btn btn-primary" onclick="restoreData()">Restore from File</button>
+        <p id="backupStatus" style="margin-top:12px;font-size:0.85rem;color:#276749;"></p>
+      </div>
+    </div>
+
+    <!-- TAB: Settings -->
+    <div id="tab-settings" class="tab-panel">
+      <div class="settings-box">
+        <h3>Security Password</h3>
+        <p>Clear Month ke liye password chahiye. Pehli baar set karo.</p>
+        <div class="row">
+          <input type="password" id="newPass" placeholder="New password" style="flex:1;">
+          <input type="password" id="confirmPass" placeholder="Confirm" style="flex:1;">
+          <button class="btn btn-primary" onclick="setPassword()">Set Password</button>
+        </div>
+        <p id="passStatus" style="font-size:0.8rem;color:#276749;"></p>
+      </div>
+      <div class="settings-box">
+        <h3>Clear Month Data</h3>
+        <p>Selected year/month ki attendance clear hogi. Password required.</p>
+        <div class="row">
+          <label>Year:</label><select id="clearYear"></select>
+          <label>Month:</label><select id="clearMonth"></select>
+        </div>
+        <div class="row">
+          <input type="password" id="clearPass" placeholder="Enter password" style="flex:1;">
+          <button class="btn btn-danger" onclick="clearMonthSecure()">Clear Month</button>
+        </div>
+      </div>
+      <div class="settings-box">
+        <h3>Info</h3>
+        <p>Data browser localStorage me save hota hai. Rates har year/month alag save hote hain.</p>
+        <p><b>Android:</b> naya file open karo, phir Chrome menu → History → Clear browsing data → Cookies (is site) ya page hard refresh.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="exportModal">
+    <div class="modal">
+      <h3>Export PDF</h3>
+      <div class="row"><label style="width:70px;">Type:</label>
+        <select id="exportType" style="flex:1;" onchange="toggleExportMonth()">
+          <option value="month">One Month</option>
+          <option value="year">Full Year</option>
+        </select>
+      </div>
+      <div class="row"><label style="width:70px;">Year:</label><select id="exportYear" style="flex:1;"></select></div>
+      <div class="row" id="exportMonthRow"><label style="width:70px;">Month:</label><select id="exportMonth" style="flex:1;"></select></div>
+      <p class="hint" style="margin:0 0 8px 0;font-size:0.78rem;">Har employee ka data alag page pe aayega. Sirf named employees.</p>
+      <div class="actions">
+        <button class="btn btn-outline" onclick="closeExportModal()">Cancel</button>
+        <button class="btn btn-success" onclick="doExportPDF()">Download PDF</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const MAX_EMP = 6;
+    const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    const DAYS_SHORT = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+    const DEFAULT_RATE = 850;
+    const defaultEmployees = [
+      { code: '45760', name: 'SITIKUMAR MAHANAND JHA', desig: 'COM.OP.' },
+      { code: '54456', name: 'SONI NIRMAL RAJENDRABHAI', desig: 'COM.OP.' },
+      { code: '76428', name: 'UMARIYA MEHULKUMAR', desig: 'COM.OP.' },
+      { code: '58742', name: 'VADI VASUDEV JANAKBHAI', desig: 'COM.OP.' },
+      { code: '46201', name: 'VIKASH KUMAR', desig: 'COM.OP.' },
+      { code: '83050', name: 'VIKRAM KUMAR', desig: 'COM.OP.' }
+    ];
+    let currentYear, currentMonth, data = {};
+
+    function storageKey(y,m){ return 'att_'+y+'_'+m; }
+    function ratesKey(y,m){ return 'att_rates_'+y+'_'+m; }
+    function passKey(){ return 'att_clear_password'; }
+    function lockKey(y,m){ return 'att_lock_'+y+'_'+m; }
+    function isMonthLocked(y,m){ return localStorage.getItem(lockKey(y,m)) === '1'; }
+    function setMonthLocked(y,m, locked){
+      if(locked) localStorage.setItem(lockKey(y,m), '1');
+      else localStorage.removeItem(lockKey(y,m));
+    }
+
+    function loadRatesFor(y, m){
+      const raw = localStorage.getItem(ratesKey(y,m));
+      if(raw){
+        try{
+          const arr = JSON.parse(raw);
+          if(Array.isArray(arr) && arr.length === MAX_EMP) return arr.map(v => Number(v)||DEFAULT_RATE);
+        }catch(e){}
+      }
+      return Array(MAX_EMP).fill(DEFAULT_RATE);
+    }
+    function saveRatesFor(y, m, arr){
+      localStorage.setItem(ratesKey(y,m), JSON.stringify(arr));
+    }
+
+    function loadPeriod(y,m){
+      const raw = localStorage.getItem(storageKey(y,m));
+      if(raw){ try{ return JSON.parse(raw); }catch(e){} }
+      return { employees: JSON.parse(JSON.stringify(defaultEmployees)), attendance: {} };
+    }
+
+    function savePeriod(){
+      const period = { employees: [], attendance: {} };
+      const daysInMonth = getDaysInMonth(currentYear, currentMonth);
+      for(let i=0; i<MAX_EMP; i++){
+        const codeEl = document.getElementById('code_'+i);
+        const nameEl = document.getElementById('name_'+i);
+        period.employees.push({
+          code: codeEl ? codeEl.value.trim() : '',
+          name: nameEl ? nameEl.value.trim() : '',
+          desig: 'COM.OP.'
+        });
+        period.attendance[i] = {};
+        for(let d=1; d<=daysInMonth; d++){
+          const inp = document.getElementById('att_'+i+'_'+d);
+          if(inp && inp.value.trim() !== ''){
+            let v = inp.value.trim();
+            if(/^[a-zA-Z]+$/.test(v)) v = v.toUpperCase();
+            period.attendance[i][d] = v;
+          }
+        }
+      }
+      localStorage.setItem(storageKey(currentYear, currentMonth), JSON.stringify(period));
+      data = period;
+      showStatus('Saved successfully!');
+    }
+
+    // totalHours from entries; P display = duties.remHours (31.6 style)
+    // DB = Double duty = same as 16 hours (2 duties). 16 or DB — same calculation.
+    function calcSummary(att, days){
+      let h=0, l=0, a=0, pp=0, totalHours=0;
+      for(let d=1; d<=days; d++){
+        const raw = (att[d]||'').toString().trim();
+        if(!raw) continue;
+        const upper = raw.toUpperCase();
+        if(upper==='H' || upper==='WO') h++;
+        else if(upper==='L') l++;
+        else if(upper==='A') a++;
+        else if(upper==='DB'){ pp++; totalHours += 16; } // Double = 16 hr
+        else if(upper==='P'){ pp++; totalHours += 8; }
+        else if(!isNaN(parseFloat(raw)) && isFinite(Number(raw))){
+          const hrs = parseFloat(raw);
+          if(hrs > 0){ pp++; totalHours += hrs; }
+        }
+      }
+      const fullDuties = Math.floor(totalHours / 8);
+      const remHours = Math.round((totalHours % 8) * 10) / 10;
+      const pDisplay = remHours === 0 ? fullDuties : parseFloat((fullDuties + remHours / 10).toFixed(1));
+      return { h, l, a, pp, pHours: pDisplay, totalHours, fullDuties, remHours };
+    }
+
+    // Salary = fullDuties * rate + remHours * (rate/8)  →  round
+    // Equivalent: Math.round(totalHours * rate / 8)
+    function calcSalary(totalHours, rate){
+      const sal = Math.round(Number(totalHours) * Number(rate) / 8);
+      return isNaN(sal) ? 0 : sal;
+    }
+
+    function showStatus(msg, isErr){
+      const el = document.getElementById('statusMsg');
+      el.textContent = msg;
+      el.className = 'status show' + (isErr ? ' err' : '');
+      setTimeout(() => el.classList.remove('show'), 2500);
+    }
+
+
+    function applyLockState(){
+      const locked = isMonthLocked(currentYear, currentMonth);
+      const badge = document.getElementById('lockBadge');
+      const btnUn = document.getElementById('btnUnlock');
+      if(badge) badge.style.display = locked ? 'inline-block' : 'none';
+      if(btnUn) btnUn.style.display = locked ? 'inline-block' : 'none';
+      const days = getDaysInMonth(currentYear, currentMonth);
+      for(let i=0; i<MAX_EMP; i++){
+        const codeEl = document.getElementById('code_'+i);
+        const nameEl = document.getElementById('name_'+i);
+        if(codeEl) codeEl.readOnly = locked;
+        if(nameEl) nameEl.readOnly = locked;
+        for(let d=1; d<=days; d++){
+          const inp = document.getElementById('att_'+i+'_'+d);
+          if(inp){
+            inp.readOnly = locked;
+            if(locked) inp.style.opacity = '0.85';
+            else inp.style.opacity = '';
+          }
+        }
+      }
+      // prevent editing dept when locked optional - leave editable
+    }
+
+    function unlockMonth(){
+      const stored = localStorage.getItem(passKey());
+      if(!stored){
+        showStatus('Pehle Settings me password set karo', true);
+        return;
+      }
+      const entered = prompt('Unlock ke liye password likho:');
+      if(entered === null) return;
+      if(entered !== stored){
+        showStatus('Galat password!', true);
+        return;
+      }
+      setMonthLocked(currentYear, currentMonth, false);
+      applyLockState();
+      showStatus('Unlocked — ab change kar sakte ho. Save ke baad phir lock ho jayega.');
+    }
+
+
+    let currentTab = 'att';
+
+    function switchTab(name, fromPopstate){
+      if(!name) name = 'att';
+      // Always sync Attendance form → data before leaving / opening other tabs
+      try { if(document.getElementById('code_0') && !isMonthLocked(currentYear, currentMonth)) savePeriod(); } catch(e) {}
+
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'tab-'+name));
+      currentTab = name;
+
+      // Mobile back button support: push history when user taps a tab
+      if(!fromPopstate){
+        try {
+          const st = { tab: name };
+          if(history.state && history.state.tab === name){
+            history.replaceState(st, '', '#tab='+name);
+          } else {
+            history.pushState(st, '', '#tab='+name);
+          }
+        } catch(e) {}
+      }
+
+      if(name === 'rates'){
+        document.getElementById('rateYear').value = currentYear;
+        document.getElementById('rateMonth').value = currentMonth;
+        renderRates();
+      }
+      if(name === 'report') renderYearSummary();
+      if(name === 'settings') fillClearSelectors();
+      if(name === 'backup') {
+        const bs = document.getElementById('backupStatus');
+        if(bs) bs.textContent = '';
+      }
+    }
+
+    // Android / browser Back button → previous tab
+    window.addEventListener('popstate', function(e){
+      let tab = 'att';
+      if(e.state && e.state.tab) tab = e.state.tab;
+      else if(location.hash && location.hash.indexOf('tab=') >= 0){
+        tab = location.hash.replace('#tab=','').split('&')[0] || 'att';
+      }
+      const valid = ['att','rates','report','backup','settings'];
+      if(valid.indexOf(tab) < 0) tab = 'att';
+      switchTab(tab, true);
+    });
+
+    // Swipe left/right to change tabs (mobile)
+    // Works: 1) left/right EDGE of screen  2) header / tabs / controls / footer
+    (function(){
+      const order = ['att','rates','report','backup','settings'];
+      let sx = 0, sy = 0, tracking = false, edgeMode = false;
+      const EDGE = 40; // px from left or right edge
+
+      function onStart(e){
+        if(!e.touches || e.touches.length !== 1) return;
+        const x = e.touches[0].clientX;
+        const y = e.touches[0].clientY;
+        const w = window.innerWidth;
+        const t = e.target;
+        const tag = (t && t.tagName) ? t.tagName.toLowerCase() : '';
+        if(tag === 'input' || tag === 'select' || tag === 'textarea' || tag === 'button'){
+          tracking = false;
+          return;
+        }
+        edgeMode = (x <= EDGE || x >= w - EDGE);
+        const inSafe = t && t.closest && t.closest('header, .tabs, .controls, .sheet-footer, .settings-box, .panel-body, .modal, .legend');
+        // table horizontal scroll: only edge swipe allowed there
+        const inTable = t && t.closest && t.closest('.table-wrap, table');
+        if(inTable && !edgeMode){
+          tracking = false;
+          return;
+        }
+        if(!edgeMode && !inSafe && inTable){
+          tracking = false;
+          return;
+        }
+        sx = x; sy = y;
+        tracking = true;
+      }
+
+      function onEnd(e){
+        if(!tracking) return;
+        tracking = false;
+        if(!e.changedTouches || !e.changedTouches.length) return;
+        const dx = e.changedTouches[0].clientX - sx;
+        const dy = e.changedTouches[0].clientY - sy;
+        const minDist = edgeMode ? 40 : 50;
+        if(Math.abs(dx) < minDist) return;
+        if(Math.abs(dx) < Math.abs(dy) * 1.1) return;
+        const idx = order.indexOf(currentTab);
+        if(idx < 0) return;
+        if(dx < 0 && idx < order.length - 1) switchTab(order[idx + 1]);
+        else if(dx > 0 && idx > 0) switchTab(order[idx - 1]);
+      }
+
+      document.addEventListener('touchstart', onStart, { passive: true });
+      document.addEventListener('touchend', onEnd, { passive: true });
+    })();
+
+    function getDaysInMonth(y,m){ return new Date(y, m+1, 0).getDate(); }
+    function esc(s){ if(s===undefined||s===null) return ''; return String(s).replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+    function initSelectors(){
+      const now = new Date();
+      ['yearSelect','reportYear','exportYear','clearYear','rateYear'].forEach(id=>{
+        const sel = document.getElementById(id); if(!sel) return;
+        sel.innerHTML = '';
+        for(let y=2023; y<=now.getFullYear()+3; y++){
+          const o = document.createElement('option'); o.value=y; o.textContent=y; sel.appendChild(o);
+        }
+      });
+      ['monthSelect','exportMonth','clearMonth','rateMonth'].forEach(id=>{
+        const sel = document.getElementById(id); if(!sel) return;
+        sel.innerHTML = '';
+        MONTHS.forEach((m,i)=>{ const o=document.createElement('option'); o.value=i; o.textContent=m; sel.appendChild(o); });
+      });
+      currentYear = now.getFullYear();
+      currentMonth = now.getMonth();
+      document.getElementById('yearSelect').value = currentYear;
+      document.getElementById('monthSelect').value = currentMonth;
+      document.getElementById('reportYear').value = currentYear;
+      document.getElementById('rateYear').value = currentYear;
+      document.getElementById('rateMonth').value = currentMonth;
+    }
+
+    function changePeriod(){
+      if(!isMonthLocked(currentYear, currentMonth)){
+        try { savePeriod(); } catch(e) {}
+      }
+      currentYear = parseInt(document.getElementById('yearSelect').value);
+      currentMonth = parseInt(document.getElementById('monthSelect').value);
+      data = loadPeriod(currentYear, currentMonth);
+      renderTable();
+    }
+
+    function fillClearSelectors(){
+      document.getElementById('clearYear').value = currentYear;
+      document.getElementById('clearMonth').value = currentMonth;
+    }
+
+    function renderTable(){
+      const days = getDaysInMonth(currentYear, currentMonth);
+      const rates = loadRatesFor(currentYear, currentMonth);
+      const head = document.getElementById('tableHead');
+      const body = document.getElementById('tableBody');
+
+      let h1 = '<tr><th rowspan="2">Code</th><th rowspan="2">Emp Name</th><th rowspan="2">Desig.</th>';
+      for(let d=1; d<=days; d++) h1 += '<th class="day-header">'+String(d).padStart(2,'0')+'</th>';
+      h1 += '<th rowspan="2">H</th><th rowspan="2">L</th><th rowspan="2">A</th><th rowspan="2">PP</th><th rowspan="2">P</th><th rowspan="2">SALARY</th></tr>';
+      let h2 = '<tr>';
+      for(let d=1; d<=days; d++){
+        const dt = new Date(currentYear, currentMonth, d);
+        h2 += '<th class="day-header">'+DAYS_SHORT[dt.getDay()]+'</th>';
+      }
+      h2 += '</tr>';
+      head.innerHTML = h1 + h2;
+
+      let html = '';
+      for(let i=0; i<MAX_EMP; i++){
+        const emp = (data.employees && data.employees[i]) ? data.employees[i] : defaultEmployees[i];
+        const att = (data.attendance && data.attendance[i]) ? data.attendance[i] : {};
+        const sum = calcSummary(att, days);
+        const sal = calcSalary(sum.totalHours, rates[i]);
+
+        html += '<tr>';
+        html += '<td class="code-cell"><input class="code-input" id="code_'+i+'" value="'+esc(emp.code)+'" maxlength="10"></td>';
+        html += '<td class="name-cell"><input class="name-input" id="name_'+i+'" value="'+esc(emp.name)+'"></td>';
+        html += '<td class="desig-cell">COM.OP.</td>';
+        for(let d=1; d<=days; d++){
+          const val = att[d] || '';
+          html += '<td><input class="att-input" id="att_'+i+'_'+d+'" value="'+esc(val)+'" maxlength="5" oninput="normalizeInput(this)" onchange="updateSummary('+i+')" onblur="normalizeInput(this);updateSummary('+i+')"></td>';
+        }
+        html += '<td class="summary-cell" id="sum_h_'+i+'">'+sum.h+'</td>';
+        html += '<td class="summary-cell" id="sum_l_'+i+'">'+sum.l+'</td>';
+        html += '<td class="summary-cell" id="sum_a_'+i+'">'+sum.a+'</td>';
+        html += '<td class="summary-cell" id="sum_pp_'+i+'">'+sum.pp+'</td>';
+        html += '<td class="summary-cell" id="sum_p_'+i+'">'+sum.pHours+'</td>';
+        html += '<td class="salary-cell" id="sum_sal_'+i+'">'+sal.toLocaleString('en-IN')+'</td>';
+        html += '</tr>';
+      }
+      body.innerHTML = html;
+      colorizeAllCells();
+      highlightTopSalary();
+      applyLockState();
+
+    }
+
+    function normalizeInput(el){
+      let v = el.value.trim();
+      if(/^[a-zA-Z]+$/.test(v)) el.value = v.toUpperCase();
+      colorizeCell(el);
+    }
+
+    function colorizeCell(el){
+      if(!el) return;
+      el.classList.remove('cell-a','cell-l','cell-db','cell-h','cell-p');
+      const v = (el.value || '').trim().toUpperCase();
+      if(v === 'A' || v === 'L') el.classList.add(v === 'A' ? 'cell-a' : 'cell-l');
+      else if(v === 'DB' || v === '16') el.classList.add('cell-db');
+      else if(v === 'H' || v === 'WO') el.classList.add('cell-h');
+    }
+
+    function colorizeAllCells(){
+      const days = getDaysInMonth(currentYear, currentMonth);
+      for(let i=0; i<MAX_EMP; i++){
+        for(let d=1; d<=days; d++){
+          colorizeCell(document.getElementById('att_'+i+'_'+d));
+        }
+      }
+    }
+
+    function highlightTopSalary(){
+      let maxSal = -1, maxIdx = -1;
+      for(let i=0; i<MAX_EMP; i++){
+        const el = document.getElementById('sum_sal_'+i);
+        if(!el) continue;
+        const n = parseInt(String(el.textContent).replace(/[^0-9]/g, ''), 10) || 0;
+        const nameEl = document.getElementById('name_'+i);
+        const hasName = nameEl && nameEl.value.trim();
+        if(!hasName) continue;
+        if(n > maxSal){ maxSal = n; maxIdx = i; }
+      }
+      for(let i=0; i<MAX_EMP; i++){
+        const el = document.getElementById('sum_sal_'+i);
+        if(el) el.classList.toggle('top-salary', i === maxIdx && maxSal > 0);
+      }
+    }
+
+    function updateSummary(empIdx){
+      const days = getDaysInMonth(currentYear, currentMonth);
+      const rates = loadRatesFor(currentYear, currentMonth);
+      const att = {};
+      for(let d=1; d<=days; d++){
+        const inp = document.getElementById('att_'+empIdx+'_'+d);
+        if(inp && inp.value.trim() !== '') att[d] = inp.value.trim();
+      }
+      const sum = calcSummary(att, days);
+      document.getElementById('sum_h_'+empIdx).textContent = sum.h;
+      document.getElementById('sum_l_'+empIdx).textContent = sum.l;
+      document.getElementById('sum_a_'+empIdx).textContent = sum.a;
+      document.getElementById('sum_pp_'+empIdx).textContent = sum.pp;
+      document.getElementById('sum_p_'+empIdx).textContent = sum.pHours;
+      const sal = calcSalary(sum.totalHours, rates[empIdx]);
+      document.getElementById('sum_sal_'+empIdx).textContent = sal.toLocaleString('en-IN');
+      highlightTopSalary();
+    }
+
+    function saveData(){
+      if(isMonthLocked(currentYear, currentMonth)){
+        showStatus('Month LOCKED hai. Pehle Unlock karo.', true);
+        return;
+      }
+      savePeriod();
+      setMonthLocked(currentYear, currentMonth, true);
+      applyLockState();
+      showStatus('Saved & Locked!');
+    }
+
+    // ----- Rates tab -----
+    function renderRates(){
+      const y = parseInt(document.getElementById('rateYear').value);
+      const m = parseInt(document.getElementById('rateMonth').value);
+      const rates = loadRatesFor(y, m);
+      const emps = getMasterEmployees();
+      let html = '';
+      for(let i=0; i<MAX_EMP; i++){
+        const emp = emps[i];
+        html += '<tr><td>'+(i+1)+'</td><td>'+esc(emp.code)+'</td><td>'+esc(emp.name)+'</td>';
+        html += '<td><input type="number" id="rate_'+i+'" value="'+rates[i]+'" min="0" step="1"></td></tr>';
+      }
+      document.getElementById('ratesBody').innerHTML = html;
+      applyRatesLockState();
+    }
+
+    function readRatesFromForm(){
+      const arr = [];
+      for(let i=0; i<MAX_EMP; i++){
+        const el = document.getElementById('rate_'+i);
+        arr.push(el ? (parseFloat(el.value) || 0) : DEFAULT_RATE);
+      }
+      return arr;
+    }
+
+    function saveRates(){
+      const y = parseInt(document.getElementById('rateYear').value);
+      const m = parseInt(document.getElementById('rateMonth').value);
+      if(isMonthLocked(y, m)){
+        showStatus('Rates LOCKED hain. Pehle Unlock karo.', true);
+        return;
+      }
+      const arr = readRatesFromForm();
+      saveRatesFor(y, m, arr);
+      setMonthLocked(y, m, true);
+      applyRatesLockState();
+      showStatus('Rates saved & Locked: '+MONTHS[m]+' '+y);
+      if(y === currentYear && m === currentMonth){
+        try { renderTable(); } catch(e) {}
+      }
+    }
+
+    function saveRatesFullYear(){
+      const y = parseInt(document.getElementById('rateYear').value);
+      const arr = readRatesFromForm();
+      // if any month locked, still allow full year only after confirm? block if current month locked for form read
+      if(!confirm(y + ' ke Jan–Dec sab months me yahi rates set karke LOCK karein?')) return;
+      for(let m=0; m<12; m++){
+        saveRatesFor(y, m, arr);
+        setMonthLocked(y, m, true);
+      }
+      applyRatesLockState();
+      showStatus('Full year '+y+' rates saved & Locked (Jan–Dec)');
+      if(y === currentYear){
+        try { renderTable(); } catch(e) {}
+      }
+    }
+
+    function applyRatesLockState(){
+      const y = parseInt(document.getElementById('rateYear').value);
+      const m = parseInt(document.getElementById('rateMonth').value);
+      const locked = isMonthLocked(y, m);
+      const badge = document.getElementById('lockBadgeRates');
+      const btn = document.getElementById('btnUnlockRates');
+      if(badge) badge.style.display = locked ? 'inline-block' : 'none';
+      if(btn) btn.style.display = locked ? 'inline-block' : 'none';
+      for(let i=0; i<MAX_EMP; i++){
+        const el = document.getElementById('rate_'+i);
+        if(el){
+          el.readOnly = locked;
+          el.style.opacity = locked ? '0.85' : '';
+        }
+      }
+    }
+
+    function unlockRatesMonth(){
+      const y = parseInt(document.getElementById('rateYear').value);
+      const m = parseInt(document.getElementById('rateMonth').value);
+      const stored = localStorage.getItem(passKey());
+      if(!stored){
+        showStatus('Pehle Settings me password set karo', true);
+        return;
+      }
+      const entered = prompt('Unlock ke liye password likho:');
+      if(entered === null) return;
+      if(entered !== stored){
+        showStatus('Galat password!', true);
+        return;
+      }
+      setMonthLocked(y, m, false);
+      applyRatesLockState();
+      // also refresh attendance lock badge if same period
+      try { applyLockState(); } catch(e) {}
+      showStatus('Unlocked: '+MONTHS[m]+' '+y);
+    }
+
+    // ----- Year Summary: employee-wise month H/L/A -----
+    // Only Attendance tab values (or saved for current period). Empty = blank. No fake default names.
+    function getMasterEmployees(){
+      const list = [];
+      for(let i=0; i<MAX_EMP; i++){
+        const nameEl = document.getElementById('name_'+i);
+        const codeEl = document.getElementById('code_'+i);
+        let name = '', code = '';
+        if(nameEl) name = nameEl.value.trim();
+        else if(data.employees && data.employees[i] && data.employees[i].name) name = String(data.employees[i].name).trim();
+        if(codeEl) code = codeEl.value.trim();
+        else if(data.employees && data.employees[i] && data.employees[i].code) code = String(data.employees[i].code).trim();
+        list.push({ name: name, code: code, desig: 'COM.OP.' });
+      }
+      return list;
+    }
+
+    function renderYearSummary(){
+      const y = parseInt(document.getElementById('reportYear').value);
+      let empMonthHtml = '';
+      const empYearTotals = [];
+
+      // Only employees that have a name on Attendance tab
+      const masterEmps = getMasterEmployees();
+
+      for(let i=0; i<MAX_EMP; i++){
+        const empName = (masterEmps[i] && masterEmps[i].name) ? String(masterEmps[i].name).trim() : '';
+        const empCode = (masterEmps[i] && masterEmps[i].code) ? String(masterEmps[i].code).trim() : '';
+        if(!empName) continue; // blank employee → skip completely
+
+        let rows = '';
+        let eh=0, el=0, ea=0, epp=0, esal=0;
+
+        for(let m=0; m<12; m++){
+          const period = loadPeriod(y, m);
+          const days = getDaysInMonth(y, m);
+          const rates = loadRatesFor(y, m);
+          const att = (period.attendance && period.attendance[i]) ? period.attendance[i] : {};
+          const sum = calcSummary(att, days);
+          const sal = calcSalary(sum.totalHours, rates[i]);
+          rows += '<tr><td>'+MONTHS[m]+'</td><td>'+sum.h+'</td><td>'+sum.l+'</td><td>'+sum.a+'</td><td>'+sum.pp+'</td><td>'+sum.pHours+'</td><td>'+sal.toLocaleString('en-IN')+'</td></tr>';
+          eh += sum.h; el += sum.l; ea += sum.a; epp += sum.pp; esal += sal;
+        }
+        empYearTotals.push({ h:eh, l:el, a:ea, pp:epp, salary:esal, name:empName, code:empCode });
+
+        empMonthHtml += '<table class="summary"><thead>';
+        empMonthHtml += '<tr class="emp-header"><td colspan="7">'+esc(empCode)+(empCode && empName ? ' — ' : '')+esc(empName)+'</td></tr>';
+        empMonthHtml += '<tr><th>Month</th><th>H</th><th>L</th><th>A</th><th>PP</th><th>P</th><th>Salary</th></tr></thead><tbody>';
+        empMonthHtml += rows;
+        empMonthHtml += '<tr class="total-row"><td>TOTAL</td><td>'+eh+'</td><td>'+el+'</td><td>'+ea+'</td><td>'+epp+'</td><td>—</td><td>'+esal.toLocaleString('en-IN')+'</td></tr>';
+        empMonthHtml += '</tbody></table>';
+      }
+
+      if(!empMonthHtml){
+        empMonthHtml = '<p class="hint">Koi employee name nahi hai. Pehle Attendance tab me name likho + Save.</p>';
+      }
+      document.getElementById('empMonthBox').innerHTML = empMonthHtml;
+
+      let eHtml = '<table class="summary"><thead><tr><th>Code</th><th>Name</th><th>H</th><th>L</th><th>A</th><th>PP</th><th>Total Salary (Rs)</th></tr></thead><tbody>';
+      let grand = 0;
+      if(empYearTotals.length === 0){
+        eHtml += '<tr><td colspan="7">No named employees</td></tr>';
+      } else {
+        let topSal = -1;
+        empYearTotals.forEach(e => { if(e.salary > topSal) topSal = e.salary; });
+        empYearTotals.forEach(e => {
+          const top = (e.salary === topSal && topSal > 0) ? ' class="row-top-salary"' : '';
+          eHtml += '<tr'+top+'><td>'+esc(e.code)+'</td><td class="name">'+esc(e.name)+'</td><td>'+e.h+'</td><td>'+e.l+'</td><td>'+e.a+'</td><td>'+e.pp+'</td><td><b>'+e.salary.toLocaleString('en-IN')+'</b></td></tr>';
+          grand += e.salary;
+        });
+        eHtml += '<tr class="total-row"><td colspan="6">GRAND TOTAL</td><td>'+grand.toLocaleString('en-IN')+'</td></tr>';
+      }
+      eHtml += '</tbody></table>';
+      document.getElementById('empYearBox').innerHTML = eHtml;
+    }
+
+
+    // ----- Password / Clear -----
+    function backupData(){
+      try { if(document.getElementById('code_0')) savePeriod(); } catch(e) {}
+      const payload = {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        app: 'Attendance-STAFF-COM.OP',
+        data: {}
+      };
+      for(let i=0; i<localStorage.length; i++){
+        const k = localStorage.key(i);
+        if(k && (k.startsWith('att_') || k === 'att_clear_password' || k === 'att_salary_rates')){
+          payload.data[k] = localStorage.getItem(k);
+        }
+      }
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'Attendance_Backup_' + new Date().toISOString().slice(0,10) + '.json';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      document.getElementById('backupStatus').textContent = 'Backup downloaded successfully.';
+      showStatus('Backup downloaded!');
+    }
+
+    function restoreData(){
+      const fileInput = document.getElementById('restoreFile');
+      if(!fileInput.files || !fileInput.files[0]){
+        showStatus('Pehle backup JSON file choose karo', true);
+        return;
+      }
+      if(!confirm('Restore se abhi ka saara data replace ho jayega. Continue?')) return;
+      const reader = new FileReader();
+      reader.onload = function(e){
+        try{
+          const payload = JSON.parse(e.target.result);
+          const map = payload.data || payload;
+          let count = 0;
+          Object.keys(map).forEach(k => {
+            if(typeof map[k] === 'string'){
+              localStorage.setItem(k, map[k]);
+              count++;
+            }
+          });
+          data = loadPeriod(currentYear, currentMonth);
+          renderTable();
+          document.getElementById('backupStatus').textContent = 'Restored ' + count + ' items. Page refresh recommended.';
+          showStatus('Restore complete! Refresh page.');
+        }catch(err){
+          showStatus('Invalid backup file', true);
+          document.getElementById('backupStatus').textContent = 'Error: ' + err.message;
+        }
+      };
+      reader.readAsText(fileInput.files[0]);
+    }
+
+    function clearCurrentNames(){
+      if(!confirm('Current month ke saare employee names + codes blank karein?')) return;
+      for(let i=0; i<MAX_EMP; i++){
+        const n = document.getElementById('name_'+i);
+        const c = document.getElementById('code_'+i);
+        if(n) n.value = '';
+        if(c) c.value = '';
+      }
+      if(data.employees){
+        data.employees = data.employees.map(() => ({ code:'', name:'', desig:'COM.OP.' }));
+      }
+      savePeriod();
+      renderTable();
+      showStatus('Names cleared for current month. Ab naya name likho + Save.');
+    }
+
+    function setPassword(){
+      const p1 = document.getElementById('newPass').value;
+      const p2 = document.getElementById('confirmPass').value;
+      if(!p1 || p1.length < 4){ showStatus('Password kam se kam 4 characters ka ho', true); return; }
+      if(p1 !== p2){ showStatus('Password match nahi hua', true); return; }
+      localStorage.setItem(passKey(), p1);
+      document.getElementById('newPass').value = '';
+      document.getElementById('confirmPass').value = '';
+      document.getElementById('passStatus').textContent = 'Password set / updated successfully.';
+      showStatus('Password saved!');
+    }
+
+    function clearMonthSecure(){
+      const stored = localStorage.getItem(passKey());
+      if(!stored){ showStatus('Pehle Settings me password set karo', true); return; }
+      const entered = document.getElementById('clearPass').value;
+      if(entered !== stored){ showStatus('Galat password!', true); return; }
+      const y = parseInt(document.getElementById('clearYear').value);
+      const m = parseInt(document.getElementById('clearMonth').value);
+      if(!confirm(MONTHS[m]+' '+y+' ki attendance clear karein?')) return;
+      const period = loadPeriod(y, m);
+      period.attendance = {};
+      localStorage.setItem(storageKey(y,m), JSON.stringify(period));
+      if(y === currentYear && m === currentMonth){ data = period; renderTable(); }
+      document.getElementById('clearPass').value = '';
+      showStatus(MONTHS[m]+' '+y+' cleared.');
+    }
+
+    // ----- PDF -----
+    function openExportModal(){
+      document.getElementById('exportYear').value = currentYear;
+      document.getElementById('exportMonth').value = currentMonth;
+      document.getElementById('exportModal').classList.add('show');
+    }
+    function closeExportModal(){ document.getElementById('exportModal').classList.remove('show'); }
+
+    function toggleExportMonth(){
+      const t = document.getElementById('exportType').value;
+      document.getElementById('exportMonthRow').style.display = (t === 'year') ? 'none' : 'flex';
+    }
+
+    function toggleExportMonth(){
+      const t = document.getElementById('exportType').value;
+      document.getElementById('exportMonthRow').style.display = (t === 'year') ? 'none' : 'flex';
+    }
+
+    function doExportPDF(){
+      const y = parseInt(document.getElementById('exportYear').value);
+      const type = document.getElementById('exportType').value;
+      const m = parseInt(document.getElementById('exportMonth').value);
+      closeExportModal();
+      if(type === 'year') exportPDFYear(y);
+      else exportPDFFor(y, m);
+    }
+
+    function getNamedIndices(emps){
+      const namedIdx = [];
+      for(let i=0; i<MAX_EMP; i++){
+        const emp = emps[i] || {};
+        if((emp.name || '').toString().trim()) namedIdx.push(i);
+      }
+      return namedIdx;
+    }
+
+    function drawPdfFooter(doc, pageW, pageH){
+      const pageCount = doc.internal.getNumberOfPages();
+      const pageCurrent = doc.internal.getCurrentPageInfo().pageNumber;
+      doc.setFontSize(8);
+      doc.setTextColor(50);
+      doc.setFont(undefined, 'normal');
+      doc.text('Prepared by : AJEET PARMAR', 10, pageH - 7);
+      doc.text('Page ' + pageCurrent + ' of ' + pageCount, pageW - 10, pageH - 7, { align: 'right' });
+    }
+
+    // Month export: attendance table (all named emps together, pehle jaisa) + year summary (1 emp per page)
+    function exportPDFFor(y, m){
+      if(y === currentYear && m === currentMonth) savePeriod();
+      const period = loadPeriod(y, m);
+      const days = getDaysInMonth(y, m);
+      const rates = loadRatesFor(y, m);
+      const dept = document.getElementById('deptName').value || 'STAFF (COM.OP)';
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+
+      let emps = (y === currentYear && m === currentMonth) ? getMasterEmployees() : (period.employees || defaultEmployees);
+      const namedIdx = getNamedIndices(emps);
+      if(namedIdx.length === 0){
+        showStatus('Koi named employee nahi — pehle Attendance me name likho', true);
+        return;
+      }
+
+      // ===== Attendance sheet (sab named employees ek table — pehle jaisa) =====
+      doc.setFontSize(13); doc.setFont(undefined, 'bold'); doc.setTextColor(0);
+      doc.text('Department : ' + dept, 10, 11);
+      doc.setFontSize(10); doc.setFont(undefined, 'normal');
+      doc.text('Attendance Report : 01/' + String(m+1).padStart(2,'0') + '/' + y + ' - ' + days + '/' + String(m+1).padStart(2,'0') + '/' + y, 10, 17);
+      doc.setFontSize(8);
+      doc.text('Generated: ' + new Date().toLocaleString(), 10, 22);
+
+      const headRow = ['Code', 'Emp Name', 'Desig.'];
+      for(let d=1; d<=days; d++) headRow.push(String(d).padStart(2,'0'));
+      headRow.push('H', 'L', 'A', 'PP', 'P', 'SALARY');
+
+      const bodyRows = [];
+      const rateLines = [];
+      namedIdx.forEach(function(i){
+        const emp = emps[i] || { code:'', name:'', desig:'COM.OP.' };
+        const att = (period.attendance && period.attendance[i]) ? period.attendance[i] : {};
+        const sum = calcSummary(att, days);
+        const sal = calcSalary(sum.totalHours, rates[i]);
+        const row = [emp.code || '', emp.name || '', 'COM.OP.'];
+        for(let d=1; d<=days; d++) row.push(att[d] || '');
+        row.push(String(sum.h), String(sum.l), String(sum.a), String(sum.pp), String(sum.pHours), sal.toLocaleString('en-IN'));
+        bodyRows.push(row);
+        rateLines.push((emp.name || emp.code) + ': Rs ' + rates[i] + '/duty');
+      });
+
+      doc.autoTable({
+        startY: 25,
+        head: [headRow],
+        body: bodyRows,
+        theme: 'grid',
+        styles: { fontSize: 5.8, cellPadding: 0.9, halign: 'center', valign: 'middle', lineColor: [70,70,70], lineWidth: 0.15, overflow: 'linebreak' },
+        headStyles: { fillColor: [44,82,130], textColor: 255, fontStyle: 'bold', fontSize: 5.8 },
+        columnStyles: {
+          0: { cellWidth: 12, fontStyle: 'bold', fontSize: 5.5 },
+          1: { cellWidth: 32, halign: 'left', fontSize: 5.2 },
+          2: { cellWidth: 12, fontSize: 5.2 }
+        },
+        didParseCell: function(data){
+          const col = data.column.index;
+          const totalCols = 3 + days;
+          if(col >= totalCols && data.section === 'body'){
+            data.cell.styles.fillColor = (col === totalCols + 5) ? [198,246,213] : [254,235,200];
+            data.cell.styles.fontStyle = 'bold';
+          }
+        },
+        margin: { left: 5, right: 5, bottom: 18 },
+        didDrawPage: function(){ drawPdfFooter(doc, pageW, pageH); }
+      });
+
+      let yPos = doc.lastAutoTable.finalY + 5;
+      if(rateLines.length){
+        doc.setFontSize(7); doc.setTextColor(40); doc.setFont(undefined, 'bold');
+        doc.text('Salary Rates used (this month):', 10, yPos);
+        doc.setFont(undefined, 'normal');
+        yPos += 4;
+        const split = doc.splitTextToSize(rateLines.join('  |  '), pageW - 20);
+        doc.text(split, 10, yPos);
+        yPos += split.length * 3.5 + 2;
+      }
+      doc.setTextColor(90); doc.setFontSize(7);
+      doc.text('H=Holiday | L=Leave | A=Absent | PP=Present Days | P=Duties (8hr=1) | SALARY = hours x Rate / 8 (round)', 10, yPos);
+
+      // ===== Year Summary — har employee NAYA page =====
+      namedIdx.forEach(function(i){
+        doc.addPage();
+        const emp = emps[i] || { code:'', name:'' };
+
+        doc.setFontSize(13); doc.setFont(undefined, 'bold'); doc.setTextColor(0);
+        doc.text('Year Summary : ' + y, 10, 12);
+        doc.setFontSize(10); doc.setFont(undefined, 'normal');
+        doc.text('Department : ' + dept, 10, 18);
+        doc.setFontSize(12); doc.setFont(undefined, 'bold');
+        doc.text((emp.code ? emp.code + '  |  ' : '') + (emp.name || ''), 10, 28);
+        doc.setFontSize(9); doc.setFont(undefined, 'normal');
+        doc.text('Designation: COM.OP.', 10, 34);
+
+        const rows = [];
+        let eh=0, el=0, ea=0, epp=0, esal=0;
+        for(let mm=0; mm<12; mm++){
+          const p = loadPeriod(y, mm);
+          const dcount = getDaysInMonth(y, mm);
+          const r = loadRatesFor(y, mm);
+          const att = (p.attendance && p.attendance[i]) ? p.attendance[i] : {};
+          const sum = calcSummary(att, dcount);
+          const sal = calcSalary(sum.totalHours, r[i]);
+          rows.push([MONTHS[mm], String(sum.h), String(sum.l), String(sum.a), String(sum.pp), String(sum.pHours), String(r[i]), sal.toLocaleString('en-IN')]);
+          eh += sum.h; el += sum.l; ea += sum.a; epp += sum.pp; esal += sal;
+        }
+        rows.push(['TOTAL', String(eh), String(el), String(ea), String(epp), '—', '—', esal.toLocaleString('en-IN')]);
+
+        doc.autoTable({
+          startY: 40,
+          head: [['Month', 'H', 'L', 'A', 'PP', 'P', 'Rate', 'Salary']],
+          body: rows,
+          theme: 'grid',
+          styles: { fontSize: 9, cellPadding: 2.2, halign: 'center' },
+          headStyles: { fillColor: [44,82,130], textColor: 255, fontStyle: 'bold', fontSize: 9 },
+          columnStyles: { 0: { halign: 'left', fontStyle: 'bold' } },
+          margin: { left: 10, right: 10, bottom: 18 },
+          didParseCell: function(data){
+            if(data.section === 'body' && data.row.index === 12){
+              data.cell.styles.fillColor = [190, 227, 248];
+              data.cell.styles.fontStyle = 'bold';
+            }
+          },
+          didDrawPage: function(){ drawPdfFooter(doc, pageW, pageH); }
+        });
+
+        const ty = doc.lastAutoTable.finalY + 10;
+        doc.setFontSize(11); doc.setFont(undefined, 'bold'); doc.setTextColor(30);
+        doc.text('Year ' + y + ' Total Salary: Rs ' + esal.toLocaleString('en-IN'), 10, ty);
+        doc.setFontSize(8); doc.setFont(undefined, 'normal'); doc.setTextColor(80);
+        doc.text('H=Holiday | L=Leave | A=Absent | PP=Present | P=Duties | Salary = hours x Rate / 8 (round)', 10, ty + 7);
+      });
+
+      const totalPages = doc.internal.getNumberOfPages();
+      for(let p=1; p<=totalPages; p++){ doc.setPage(p); drawPdfFooter(doc, pageW, pageH); }
+
+      doc.save('Attendance_' + y + '_' + String(m+1).padStart(2,'0') + '.pdf');
+      showStatus('PDF: attendance + year summary (' + namedIdx.length + ' emp pages)');
+    }
+
+    // Full year only — har employee 1 page
+    function exportPDFYear(y){
+      try { if(document.getElementById('code_0')) savePeriod(); } catch(e) {}
+      const dept = document.getElementById('deptName').value || 'STAFF (COM.OP)';
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+
+      const emps = getMasterEmployees();
+      const namedIdx = getNamedIndices(emps);
+      if(namedIdx.length === 0){
+        showStatus('Koi named employee nahi — pehle Attendance me name likho', true);
+        return;
+      }
+
+      namedIdx.forEach(function(i, pageIdx){
+        if(pageIdx > 0) doc.addPage();
+        const emp = emps[i] || { code:'', name:'' };
+
+        doc.setFontSize(13); doc.setFont(undefined, 'bold'); doc.setTextColor(0);
+        doc.text('Department : ' + dept, 14, 14);
+        doc.setFontSize(11);
+        doc.text('Year Summary : ' + y, 14, 21);
+        doc.setFontSize(12);
+        doc.text((emp.code ? emp.code + '  |  ' : '') + emp.name, 14, 30);
+        doc.setFontSize(9); doc.setFont(undefined, 'normal');
+        doc.text('Designation: COM.OP.', 14, 36);
+
+        const rows = [];
+        let eh=0, el=0, ea=0, epp=0, esal=0;
+        for(let mm=0; mm<12; mm++){
+          const p = loadPeriod(y, mm);
+          const dcount = getDaysInMonth(y, mm);
+          const r = loadRatesFor(y, mm);
+          const att = (p.attendance && p.attendance[i]) ? p.attendance[i] : {};
+          const sum = calcSummary(att, dcount);
+          const sal = calcSalary(sum.totalHours, r[i]);
+          rows.push([MONTHS[mm], String(sum.h), String(sum.l), String(sum.a), String(sum.pp), String(sum.pHours), r[i], sal.toLocaleString('en-IN')]);
+          eh += sum.h; el += sum.l; ea += sum.a; epp += sum.pp; esal += sal;
+        }
+        rows.push(['TOTAL', String(eh), String(el), String(ea), String(epp), '—', '—', esal.toLocaleString('en-IN')]);
+
+        doc.autoTable({
+          startY: 42,
+          head: [['Month', 'H', 'L', 'A', 'PP', 'P', 'Rate', 'Salary']],
+          body: rows,
+          theme: 'grid',
+          styles: { fontSize: 9, cellPadding: 2.2, halign: 'center' },
+          headStyles: { fillColor: [44,82,130], textColor: 255, fontStyle: 'bold', fontSize: 9 },
+          columnStyles: { 0: { halign: 'left', fontStyle: 'bold' } },
+          margin: { left: 14, right: 14, bottom: 18 },
+          didParseCell: function(data){
+            if(data.section === 'body' && data.row.index === 12){
+              data.cell.styles.fillColor = [190, 227, 248];
+              data.cell.styles.fontStyle = 'bold';
+            }
+          },
+          didDrawPage: function(){ drawPdfFooter(doc, pageW, pageH); }
+        });
+
+        let yPos = doc.lastAutoTable.finalY + 10;
+        doc.setFontSize(10); doc.setFont(undefined, 'bold'); doc.setTextColor(30);
+        doc.text('Year ' + y + ' Total Salary: Rs ' + esal.toLocaleString('en-IN'), 14, yPos);
+        yPos += 7;
+        doc.setFontSize(8); doc.setFont(undefined, 'normal'); doc.setTextColor(80);
+        doc.text('H=Holiday | L=Leave | A=Absent | PP=Present | P=Duties | Salary = hours x Rate / 8 (round)', 14, yPos);
+      });
+
+      const totalPages = doc.internal.getNumberOfPages();
+      for(let p=1; p<=totalPages; p++){ doc.setPage(p); drawPdfFooter(doc, pageW, pageH); }
+
+      doc.save('Attendance_Year_' + y + '.pdf');
+      showStatus('PDF full year ' + y + ' (' + namedIdx.length + ' pages)');
+    }
+
+
+    // Init
+    initSelectors();
+    data = loadPeriod(currentYear, currentMonth);
+    renderTable();
+    try {
+      let startTab = 'att';
+      if(location.hash && location.hash.indexOf('tab=') >= 0){
+        startTab = location.hash.replace('#tab=','').split('&')[0] || 'att';
+      }
+      history.replaceState({ tab: startTab }, '', '#tab='+startTab);
+      if(startTab !== 'att') switchTab(startTab, true);
+    } catch(e) {}
+    window.addEventListener('beforeunload', () => { try{ if(!isMonthLocked(currentYear, currentMonth)) savePeriod(); }catch(e){} });
+    document.getElementById('exportModal').addEventListener('click', function(e){ if(e.target === this) closeExportModal(); });
+  </script>
+
+  <script>
+    // PWA install + service worker
+    let deferredInstallPrompt = null;
+
+    function triggerInstall(){
+      const hint = document.getElementById('installHint');
+      if(deferredInstallPrompt){
+        deferredInstallPrompt.prompt();
+        deferredInstallPrompt.userChoice.then(function(r){
+          deferredInstallPrompt = null;
+          const b = document.getElementById('btnInstall');
+          if(b) b.style.display = 'none';
+          if(hint) hint.textContent = r.outcome === 'accepted' ? 'Installed!' : '';
+        });
+        return;
+      }
+      // Fallback instructions
+      const ua = navigator.userAgent || '';
+      const isIOS = /iPhone|iPad|iPod/i.test(ua);
+      const isAndroid = /Android/i.test(ua);
+      let msg = '';
+      if(isIOS){
+        msg = 'iPhone: Share button → Add to Home Screen';
+      } else if(isAndroid){
+        msg = 'Chrome menu ⋮ → Install app / Add to Home screen';
+      } else {
+        msg = 'Chrome address bar me Install icon dekho, ya menu → Install app';
+      }
+      if(hint) hint.textContent = msg;
+      alert(msg);
+    }
+
+    window.addEventListener('beforeinstallprompt', function(e){
+      e.preventDefault();
+      deferredInstallPrompt = e;
+      const b = document.getElementById('btnInstall');
+      if(b) b.style.display = 'inline-block';
+      const hint = document.getElementById('installHint');
+      if(hint) hint.textContent = 'Install ready';
+    });
+
+    window.addEventListener('appinstalled', function(){
+      deferredInstallPrompt = null;
+      const b = document.getElementById('btnInstall');
+      if(b) b.style.display = 'none';
+      const hint = document.getElementById('installHint');
+      if(hint) hint.textContent = 'App installed';
+    });
+
+    if('serviceWorker' in navigator){
+      window.addEventListener('load', function(){
+        const base = window.APP_BASE || './';
+        const swUrl = base + 'sw.js';
+        navigator.serviceWorker.register(swUrl, { scope: base }).then(function(reg){
+          console.log('SW OK', reg.scope);
+          // show manual install hint if no beforeinstallprompt after 3s
+          setTimeout(function(){
+            if(!deferredInstallPrompt && !window.matchMedia('(display-mode: standalone)').matches){
+              const b = document.getElementById('btnInstall');
+              if(b && b.style.display === 'none'){
+                b.style.display = 'inline-block';
+                b.textContent = 'How to Install';
+              }
+            }
+          }, 3000);
+        }).catch(function(err){
+          console.log('SW fail', err);
+          const hint = document.getElementById('installHint');
+          if(hint) hint.textContent = 'SW failed — check sw.js on server';
+        });
+      });
+    }
+  </script>
+</body>
+</html>
