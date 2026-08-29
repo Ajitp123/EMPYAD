@@ -71,6 +71,8 @@
     table.att input.att-input.cell-l { background: #fed7d7 !important; color: #9b2c2c; border-color: #fc8181; }
     table.att input.att-input.cell-db { background: #c6f6d5 !important; color: #22543d; border-color: #68d391; }
     table.att input.att-input.cell-h { background: #bee3f8 !important; color: #2b6cb0; border-color: #63b3ed; }
+    table.att input.att-input.cell-hi { background: #c6f6d5 !important; color: #22543d; border-color: #68d391; }
+    table.att input.att-input.cell-lo { background: #fed7d7 !important; color: #9b2c2c; border-color: #fc8181; }
     table.att .salary-cell.top-salary { background: #f6e05e !important; color: #744210; box-shadow: inset 0 0 0 2px #d69e2e; }
     table.summary tr.row-top-salary td { background: #fefcbf !important; font-weight: 700; }
     table.summary tr.row-top-salary td:last-child { background: #f6e05e !important; color: #744210; }
@@ -602,11 +604,18 @@
 
     function colorizeCell(el){
       if(!el) return;
-      el.classList.remove('cell-a','cell-l','cell-db','cell-h','cell-p');
+      el.classList.remove('cell-a','cell-l','cell-db','cell-h','cell-p','cell-hi','cell-lo');
       const v = (el.value || '').trim().toUpperCase();
       if(v === 'A' || v === 'L') el.classList.add(v === 'A' ? 'cell-a' : 'cell-l');
       else if(v === 'DB' || v === '16') el.classList.add('cell-db');
       else if(v === 'H' || v === 'WO') el.classList.add('cell-h');
+      else if(v === 'P'); // P = 8hr duty -> no special color
+      else if(v !== '' && !isNaN(parseFloat(v)) && isFinite(Number(v))){
+        const hrs = parseFloat(v);
+        if(hrs > 8) el.classList.add('cell-hi');      // 8 se zyada -> green
+        else if(hrs > 0 && hrs < 8) el.classList.add('cell-lo'); // 8 se kam -> red
+        // hrs === 8 -> no color, jaisa pehle tha
+      }
     }
 
     function colorizeAllCells(){
