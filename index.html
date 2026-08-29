@@ -122,8 +122,9 @@
 
     <div class="tabs">
       <button class="tab-btn active" data-tab="att" onclick="switchTab('att')">Attendance</button>
-      <button class="tab-btn" data-tab="rates" onclick="switchTab('rates')">Salary Rates</button>
       <button class="tab-btn" data-tab="report" onclick="switchTab('report')">Year Summary</button>
+      <button class="tab-btn" data-tab="totals" onclick="switchTab('totals')">Grand Total</button>
+      <button class="tab-btn" data-tab="rates" onclick="switchTab('rates')">Salary Rates</button>
       <button class="tab-btn" data-tab="backup" onclick="switchTab('backup')">Backup</button>
       <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')">Settings</button>
     </div>
@@ -206,6 +207,26 @@
         <div id="empMonthBox"></div>
         <h3 style="margin-top:20px;">Employee-wise Year Total + Salary</h3>
         <div id="empYearBox"></div>
+      </div>
+    </div>
+
+    <!-- TAB: Grand Total (custom range) -->
+    <div id="tab-totals" class="tab-panel">
+      <div class="controls">
+        <label>From:</label>
+        <select id="totalsFromYear"></select>
+        <select id="totalsFromMonth"></select>
+        <label>To:</label>
+        <select id="totalsToYear"></select>
+        <select id="totalsToMonth"></select>
+        <label>Employee:</label>
+        <select id="totalsEmpSelect"></select>
+        <button class="btn btn-primary" onclick="renderGrandTotal()">Show Total</button>
+      </div>
+      <div class="panel-body">
+        <h3>Employee-wise Total (Selected Range)</h3>
+        <p class="hint" style="margin:0 0 12px 0;">Jitne bhi employees ka Attendance tab me naam bhara hai, sabka is date range ka total A, total L aur total Salary.</p>
+        <div id="grandTotalBox"></div>
       </div>
     </div>
 
@@ -577,7 +598,11 @@
         document.getElementById('rateMonth').value = currentMonth;
         renderRates();
       }
-      if(name === 'report') renderYearSummary();
+      if(name === 'report'){
+        document.getElementById('reportYear').value = currentYear;
+        renderYearSummary();
+      }
+      if(name === 'totals'){ refreshTotalsEmpSelect(); renderGrandTotal(); }
       if(name === 'settings') fillClearSelectors();
       if(name === 'backup') {
         const bs = document.getElementById('backupStatus');
@@ -592,7 +617,7 @@
       else if(location.hash && location.hash.indexOf('tab=') >= 0){
         tab = location.hash.replace('#tab=','').split('&')[0] || 'att';
       }
-      const valid = ['att','rates','report','backup','settings'];
+      const valid = ['att','report','totals','rates','backup','settings'];
       if(valid.indexOf(tab) < 0) tab = 'att';
       switchTab(tab, true);
     });
@@ -600,7 +625,7 @@
     // Swipe left/right to change tabs (mobile)
     // Works: 1) left/right EDGE of screen  2) header / tabs / controls / footer
     (function(){
-      const order = ['att','rates','report','backup','settings'];
+      const order = ['att','report','totals','rates','backup','settings'];
       let sx = 0, sy = 0, tracking = false, edgeMode = false;
       const EDGE = 40; // px from left or right edge
 
@@ -655,14 +680,14 @@
 
     function initSelectors(){
       const now = new Date();
-      ['yearSelect','reportYear','exportYear','clearYear','rateYear','fixYearFrom','fixYearTo','fixNameYearFrom','fixNameYearTo'].forEach(id=>{
+      ['yearSelect','reportYear','exportYear','clearYear','rateYear','fixYearFrom','fixYearTo','fixNameYearFrom','fixNameYearTo','totalsFromYear','totalsToYear'].forEach(id=>{
         const sel = document.getElementById(id); if(!sel) return;
         sel.innerHTML = '';
         for(let y=2023; y<=now.getFullYear()+5; y++){
           const o = document.createElement('option'); o.value=y; o.textContent=y; sel.appendChild(o);
         }
       });
-      ['monthSelect','exportMonth','clearMonth','rateMonth'].forEach(id=>{
+      ['monthSelect','exportMonth','clearMonth','rateMonth','totalsFromMonth','totalsToMonth'].forEach(id=>{
         const sel = document.getElementById(id); if(!sel) return;
         sel.innerHTML = '';
         MONTHS.forEach((m,i)=>{ const o=document.createElement('option'); o.value=i; o.textContent=m; sel.appendChild(o); });
@@ -678,6 +703,10 @@
       document.getElementById('fixYearTo').value = currentYear;
       document.getElementById('fixNameYearFrom').value = 2023;
       document.getElementById('fixNameYearTo').value = currentYear;
+      document.getElementById('totalsFromYear').value = 2023;
+      document.getElementById('totalsFromMonth').value = 0;
+      document.getElementById('totalsToYear').value = currentYear;
+      document.getElementById('totalsToMonth').value = currentMonth;
     }
 
     function changePeriod(){
@@ -748,6 +777,28 @@
     function refreshEmployeeSelectors(){
       refreshEmployeeSelect('bulkEmpSelect', false);
       refreshEmployeeSelect('clearEmpSelect', true);
+      refreshTotalsEmpSelect();
+    }
+
+    function refreshTotalsEmpSelect(){
+      const sel = document.getElementById('totalsEmpSelect');
+      if(!sel) return;
+      const prevVal = sel.value;
+      sel.innerHTML = '';
+      const oAll = document.createElement('option');
+      oAll.value = 'all';
+      oAll.textContent = 'All Employees';
+      sel.appendChild(oAll);
+      getMasterEmployees().forEach(e=>{
+        const nm = (e.name || '').trim();
+        if(!nm) return;
+        const o = document.createElement('option');
+        o.value = nm;
+        o.textContent = nm;
+        sel.appendChild(o);
+      });
+      const opts = Array.from(sel.options).map(o=>o.value);
+      if(prevVal && opts.includes(prevVal)) sel.value = prevVal;
     }
 
     function refreshEmployeeSelect(selectId, withAllOption){
@@ -1123,6 +1174,72 @@
       }
       eHtml += '</tbody></table>';
       document.getElementById('empYearBox').innerHTML = eHtml;
+    }
+
+    // ----- Grand Total (custom date range) -----
+    function renderGrandTotal(){
+      const fy = parseInt(document.getElementById('totalsFromYear').value);
+      const fm = parseInt(document.getElementById('totalsFromMonth').value);
+      const ty = parseInt(document.getElementById('totalsToYear').value);
+      const tm = parseInt(document.getElementById('totalsToMonth').value);
+      const empFilter = document.getElementById('totalsEmpSelect') ? document.getElementById('totalsEmpSelect').value : 'all';
+
+      // Convert to absolute month index for easy range looping
+      let startAbs = fy*12 + fm;
+      let endAbs = ty*12 + tm;
+      if(startAbs > endAbs){ const tmp = startAbs; startAbs = endAbs; endAbs = tmp; }
+
+      const masterEmps = getMasterEmployees().filter(e => e.name && e.name.trim());
+      const targets = (empFilter === 'all') ? masterEmps : masterEmps.filter(e => e.name.trim().toUpperCase() === empFilter.toUpperCase());
+
+      const totals = []; // { code, name, a, l, salary }
+      targets.forEach(target=>{
+        const targetNameUpper = target.name.trim().toUpperCase();
+        let ea = 0, el = 0, esal = 0;
+        for(let abs = startAbs; abs <= endAbs; abs++){
+          const y = Math.floor(abs/12);
+          const m = abs % 12;
+          const period = loadPeriod(y, m);
+          const periodEmployees = (period.employees && period.employees.length === MAX_EMP) ? period.employees : defaultEmployees;
+          // Match by NAME for this specific period, not by fixed index —
+          // isse purane months me index alag hone par bhi total sahi aayega.
+          let idx = -1;
+          for(let k=0; k<periodEmployees.length; k++){
+            const nm = (periodEmployees[k] && periodEmployees[k].name) ? String(periodEmployees[k].name).trim().toUpperCase() : '';
+            if(nm === targetNameUpper){ idx = k; break; }
+          }
+          if(idx === -1) continue; // is period me ye employee naam se maujood nahi tha
+          const days = getDaysInMonth(y, m);
+          const rates = loadRatesFor(y, m);
+          const att = (period.attendance && period.attendance[idx]) ? period.attendance[idx] : {};
+          const sum = calcSummary(att, days);
+          const sal = calcSalary(sum.totalHours, rates[idx]);
+          ea += sum.a; el += sum.l; esal += sal;
+        }
+        totals.push({ code: target.code, name: target.name, a: ea, l: el, salary: esal });
+      });
+
+      const fromLabel = MONTHS[startAbs % 12] + ' ' + Math.floor(startAbs/12);
+      const toLabel = MONTHS[endAbs % 12] + ' ' + Math.floor(endAbs/12);
+
+      let html = '<p style="font-size:0.85rem;color:#4a5568;margin:0 0 10px 0;"><b>Range:</b> '
+        + fromLabel + ' &nbsp;to&nbsp; ' + toLabel + '</p>';
+      html += '<table class="summary"><thead><tr><th>Code</th><th>Name</th><th>Total A</th><th>Total L</th><th>A+L Total</th><th>Total Salary (Rs)</th></tr></thead><tbody>';
+      if(totals.length === 0){
+        html += '<tr><td colspan="6">Koi employee nahi mila. Pehle Attendance tab me name likho + Save.</td></tr>';
+      } else {
+        let grand = 0;
+        let grandAL = 0;
+        totals.forEach(e=>{
+          const al = e.a + e.l;
+          html += '<tr><td>'+esc(e.code)+'</td><td class="name">'+esc(e.name)+'</td><td>'+e.a+'</td><td>'+e.l+'</td><td><b>'+al+'</b></td><td><b>'+e.salary.toLocaleString('en-IN')+'</b></td></tr>';
+          grand += e.salary;
+          grandAL += al;
+        });
+        html += '<tr class="total-row"><td colspan="4">GRAND TOTAL</td><td>'+grandAL+'</td><td>'+grand.toLocaleString('en-IN')+'</td></tr>';
+      }
+      html += '</tbody></table>';
+      document.getElementById('grandTotalBox').innerHTML = html;
     }
 
 
