@@ -138,7 +138,7 @@
         <label>Month:</label>
         <select id="monthSelect" onchange="changePeriod()"></select>
         <label>Dept:</label>
-        <input type="text" id="deptName" value="STAFF (COM.OP)" style="width:130px;" onchange="saveData()">
+        <input type="text" id="deptName" value="STAFF (COM.OP)" style="width:130px;background:#edf2f7;color:#4a5568;" readonly>
         <button class="btn btn-primary" onclick="saveData()">Save</button>
         <button class="btn btn-outline" onclick="openNotesModal()">📝 Notes</button>
         <button class="btn btn-outline" id="btnUnlock" style="display:none;" onclick="unlockMonth()">Unlock (Password)</button>
@@ -232,6 +232,14 @@
         </div>
         <button class="btn btn-primary" onclick="fixOldPDBEntries()" style="margin-top:10px;">Fix Now</button>
         <p id="fixPdbStatus" style="margin-top:12px;font-size:0.85rem;color:#276749;"></p>
+        <h3 style="margin-top:28px;">Fix Employee Names</h3>
+        <p class="hint" style="margin:0 0 12px 0;">Selected years ke saare months me employee ke naam/code current 5 employees (AJEET PARMAR, HEMANSHU TAILOR, MEHUL PATEL, RAKESH RAJPUT, RAVI PATEL) se replace ho jayenge. Attendance data touch nahi hoga.</p>
+        <div class="row">
+          <label>From Year:</label><select id="fixNameYearFrom"></select>
+          <label>To Year:</label><select id="fixNameYearTo"></select>
+        </div>
+        <button class="btn btn-primary" onclick="fixEmployeeNames()" style="margin-top:10px;">Fix Names Now</button>
+        <p id="fixNameStatus" style="margin-top:12px;font-size:0.85rem;color:#276749;"></p>
       </div>
     </div>
 
@@ -389,6 +397,36 @@
       statusEl.textContent = changedCells > 0
         ? changedCells + ' entries update hui, ' + changedMonths + ' month(s) me (' + lo + '–' + hi + ').'
         : 'Koi "8" ya "16" entry nahi mili ' + lo + '–' + hi + ' me.';
+      statusEl.style.color = '#276749';
+    }
+
+    function fixEmployeeNames(){
+      const fromY = parseInt(document.getElementById('fixNameYearFrom').value);
+      const toY = parseInt(document.getElementById('fixNameYearTo').value);
+      const lo = Math.min(fromY, toY), hi = Math.max(fromY, toY);
+      if(!confirm('Years ' + lo + '–' + hi + ' ke saare months me employee naam/code current 5 employees se replace ho jayenge. Attendance data safe rahega. Continue?')) return;
+      let changedMonths = 0;
+      for(let y=lo; y<=hi; y++){
+        for(let m=0; m<12; m++){
+          const key = storageKey(y, m);
+          const raw = localStorage.getItem(key);
+          if(!raw) continue;
+          let period;
+          try{ period = JSON.parse(raw); }catch(e){ continue; }
+          if(!period) continue;
+          period.employees = JSON.parse(JSON.stringify(defaultEmployees));
+          localStorage.setItem(key, JSON.stringify(period));
+          changedMonths++;
+        }
+      }
+      if(lo <= currentYear && currentYear <= hi){
+        data = loadPeriod(currentYear, currentMonth);
+        renderTable();
+      }
+      const statusEl = document.getElementById('fixNameStatus');
+      statusEl.textContent = changedMonths > 0
+        ? changedMonths + ' month(s) ke employee names update ho gaye (' + lo + '–' + hi + ').'
+        : 'Is range me koi saved data nahi mila.';
       statusEl.style.color = '#276749';
     }
 
@@ -617,7 +655,7 @@
 
     function initSelectors(){
       const now = new Date();
-      ['yearSelect','reportYear','exportYear','clearYear','rateYear','fixYearFrom','fixYearTo'].forEach(id=>{
+      ['yearSelect','reportYear','exportYear','clearYear','rateYear','fixYearFrom','fixYearTo','fixNameYearFrom','fixNameYearTo'].forEach(id=>{
         const sel = document.getElementById(id); if(!sel) return;
         sel.innerHTML = '';
         for(let y=2023; y<=now.getFullYear()+5; y++){
@@ -638,6 +676,8 @@
       document.getElementById('rateMonth').value = currentMonth;
       document.getElementById('fixYearFrom').value = 2023;
       document.getElementById('fixYearTo').value = currentYear;
+      document.getElementById('fixNameYearFrom').value = 2023;
+      document.getElementById('fixNameYearTo').value = currentYear;
     }
 
     function changePeriod(){
