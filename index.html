@@ -148,6 +148,26 @@
         </table>
       </div>
       <div class="sheet-footer">Prepared by : AJEET PARMAR</div>
+
+      <div class="settings-box" style="margin:16px;">
+        <h3>Bulk Fill — Pura Month Bharo</h3>
+        <p class="hint" style="margin:0 0 12px 0;">Employee aur value select karke pure selected month (upar wale Year/Month) ke saare din ek saath bhar jayenge.</p>
+        <div class="row">
+          <label>Employee:</label>
+          <select id="bulkEmpSelect"></select>
+          <label>Value:</label>
+          <select id="bulkValueSelect">
+            <option value="P">P (Present / 8 hr)</option>
+            <option value="A">A (Absent)</option>
+            <option value="L">L (Leave)</option>
+            <option value="H">H (Holiday)</option>
+            <option value="WO">WO (Week Off)</option>
+            <option value="DB">DB (Double Duty / 16 hr)</option>
+          </select>
+          <button class="btn btn-primary" id="btnBulkFill" onclick="bulkFillMonth()">Fill Month</button>
+        </div>
+        <p id="bulkFillStatus" style="margin-top:12px;font-size:0.85rem;color:#276749;"></p>
+      </div>
     </div>
 
     <!-- TAB: Salary Rates (per year + month) -->
@@ -437,6 +457,12 @@
         }
       }
       // prevent editing dept when locked optional - leave editable
+      const bulkBtn = document.getElementById('btnBulkFill');
+      const bulkEmp = document.getElementById('bulkEmpSelect');
+      const bulkVal = document.getElementById('bulkValueSelect');
+      if(bulkBtn) bulkBtn.disabled = locked;
+      if(bulkEmp) bulkEmp.disabled = locked;
+      if(bulkVal) bulkVal.disabled = locked;
     }
 
     function unlockMonth(){
@@ -645,7 +671,52 @@
       colorizeAllCells();
       highlightTopSalary();
       applyLockState();
+      refreshBulkFillEmployees();
 
+    }
+
+    function refreshBulkFillEmployees(){
+      const sel = document.getElementById('bulkEmpSelect');
+      if(!sel) return;
+      const prevVal = sel.value;
+      sel.innerHTML = '';
+      for(let i=0; i<MAX_EMP; i++){
+        const emp = (data.employees && data.employees[i]) ? data.employees[i] : defaultEmployees[i];
+        const label = (emp && emp.name && emp.name.trim()) ? emp.name.trim() : ('Employee ' + (i+1) + ' (blank)');
+        const o = document.createElement('option');
+        o.value = i;
+        o.textContent = label;
+        sel.appendChild(o);
+      }
+      if(prevVal !== '' && prevVal !== null && Number(prevVal) < MAX_EMP) sel.value = prevVal;
+    }
+
+    function bulkFillMonth(){
+      if(isMonthLocked(currentYear, currentMonth)){
+        const st = document.getElementById('bulkFillStatus');
+        st.textContent = 'Ye month LOCKED hai. Pehle Unlock karo.';
+        st.style.color = '#9b2c2c';
+        return;
+      }
+      const empIdx = parseInt(document.getElementById('bulkEmpSelect').value);
+      const val = document.getElementById('bulkValueSelect').value;
+      const empNameEl = document.getElementById('name_'+empIdx);
+      const empName = empNameEl ? (empNameEl.value.trim() || 'is employee') : 'is employee';
+      const ok = confirm(MONTHS[currentMonth] + ' ' + currentYear + ' — ' + empName + ' ke saare din "' + val + '" se bhar diye jayenge. Purane values overwrite ho jayenge. Continue?');
+      if(!ok) return;
+      const days = getDaysInMonth(currentYear, currentMonth);
+      for(let d=1; d<=days; d++){
+        const inp = document.getElementById('att_'+empIdx+'_'+d);
+        if(inp){
+          inp.value = val;
+          colorizeCell(inp);
+        }
+      }
+      updateSummary(empIdx);
+      savePeriod();
+      const st = document.getElementById('bulkFillStatus');
+      st.textContent = MONTHS[currentMonth] + ' ' + currentYear + ' — ' + empName + ' ke ' + days + ' din "' + val + '" se bhar diye gaye aur save ho gaye.';
+      st.style.color = '#276749';
     }
 
     function normalizeInput(el){
