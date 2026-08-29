@@ -97,6 +97,8 @@
     .settings-box p { font-size: 0.85rem; color: #4a5568; margin-bottom: 10px; }
     .settings-box .row { margin-bottom: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 100; align-items: center; justify-content: center; }
+    .att-cell { position: relative; }
+    .att-cell.has-note::after { content: ''; position: absolute; top: 1px; right: 1px; width: 5px; height: 5px; border-radius: 50%; background: #d69e2e; pointer-events: none; }
     .modal-overlay.show { display: flex; }
     .modal { background: #fff; border-radius: 10px; padding: 24px; width: 90%; max-width: 360px; box-shadow: 0 10px 40px rgba(0,0,0,0.25); }
     .modal h3 { margin-bottom: 14px; color: #2c5282; }
@@ -138,6 +140,7 @@
         <label>Dept:</label>
         <input type="text" id="deptName" value="STAFF (COM.OP)" style="width:130px;" onchange="saveData()">
         <button class="btn btn-primary" onclick="saveData()">Save</button>
+        <button class="btn btn-outline" onclick="openNotesModal()">📝 Notes</button>
         <button class="btn btn-outline" id="btnUnlock" style="display:none;" onclick="unlockMonth()">Unlock (Password)</button>
         <span id="lockBadge" style="display:none;margin-left:6px;padding:4px 10px;background:#c53030;color:#fff;border-radius:6px;font-size:0.8rem;font-weight:700;">LOCKED</span>
       </div>
@@ -287,6 +290,27 @@
     </div>
   </div>
 
+  <div class="modal-overlay" id="notesModal">
+    <div class="modal">
+      <h3>📝 Attendance Note</h3>
+      <div class="row"><label style="width:70px;">Employee:</label><select id="noteEmpSelect" style="flex:1;" onchange="onNoteEmpOrDayChange()"></select></div>
+      <div class="row"><label style="width:70px;">Date:</label><select id="noteDaySelect" style="flex:1;" onchange="onNoteEmpOrDayChange()"></select></div>
+      <div class="row" style="flex-direction:column;align-items:stretch;gap:6px;">
+        <label>Reason / Note:</label>
+        <textarea id="noteText" rows="3" style="width:100%;border:1px solid #cbd5e0;border-radius:6px;padding:8px;font-family:inherit;font-size:0.9rem;" placeholder="e.g. Medical leave, family function..."></textarea>
+      </div>
+      <div class="actions">
+        <button class="btn btn-danger" onclick="deleteNoteEntry()">Delete</button>
+        <button class="btn btn-outline" onclick="closeNotesModal()">Close</button>
+        <button class="btn btn-success" onclick="saveNoteEntry()">Save Note</button>
+      </div>
+      <div id="noteListWrap" style="margin-top:16px;border-top:1px solid #e2e8f0;padding-top:12px;">
+        <p style="font-size:0.78rem;font-weight:700;color:#4a5568;margin:0 0 8px 0;">Is employee ke is month ke notes:</p>
+        <div id="noteList" style="max-height:140px;overflow-y:auto;font-size:0.8rem;"></div>
+      </div>
+    </div>
+  </div>
+
   <script>
     const MAX_EMP = 6;
     const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -370,12 +394,12 @@
 
     function loadPeriod(y,m){
       const raw = localStorage.getItem(storageKey(y,m));
-      if(raw){ try{ return JSON.parse(raw); }catch(e){} }
-      return { employees: JSON.parse(JSON.stringify(defaultEmployees)), attendance: {} };
+      if(raw){ try{ const p = JSON.parse(raw); if(!p.notes) p.notes = {}; return p; }catch(e){} }
+      return { employees: JSON.parse(JSON.stringify(defaultEmployees)), attendance: {}, notes: {} };
     }
 
     function savePeriod(){
-      const period = { employees: [], attendance: {} };
+      const period = { employees: [], attendance: {}, notes: data.notes || {} };
       const daysInMonth = getDaysInMonth(currentYear, currentMonth);
       for(let i=0; i<MAX_EMP; i++){
         const codeEl = document.getElementById('code_'+i);
@@ -661,7 +685,9 @@
         html += '<td class="desig-cell">COM.OP.</td>';
         for(let d=1; d<=days; d++){
           const val = att[d] || '';
-          html += '<td><input class="att-input" id="att_'+i+'_'+d+'" value="'+esc(val)+'" maxlength="5" oninput="normalizeInput(this)" onchange="updateSummary('+i+')" onblur="normalizeInput(this);updateSummary('+i+')"></td>';
+          const noteText = (data.notes && data.notes[i] && data.notes[i][d]) ? data.notes[i][d] : '';
+          const hasNote = noteText.trim() !== '';
+          html += '<td class="att-cell'+(hasNote?' has-note':'')+'"><input class="att-input" id="att_'+i+'_'+d+'" value="'+esc(val)+'" maxlength="5" oninput="normalizeInput(this)" onchange="updateSummary('+i+')" onblur="normalizeInput(this);updateSummary('+i+')" ondblclick="openNotesModal('+i+','+d+')" title="'+esc(noteText)+'"></td>';
         }
         html += '<td class="summary-cell" id="sum_h_'+i+'">'+sum.h+'</td>';
         html += '<td class="summary-cell" id="sum_l_'+i+'">'+sum.l+'</td>';
@@ -709,6 +735,76 @@
         sel.appendChild(o);
       }
       if(prevVal !== '' && prevVal !== null && (prevVal === 'all' || Number(prevVal) < MAX_EMP)) sel.value = prevVal;
+    }
+
+    // ----- NOTES -----
+    function openNotesModal(empIdx, day){
+      refreshEmployeeSelect('noteEmpSelect', false);
+      const daySel = document.getElementById('noteDaySelect');
+      const days = getDaysInMonth(currentYear, currentMonth);
+      daySel.innerHTML = '';
+      for(let d=1; d<=days; d++){
+        const dt = new Date(currentYear, currentMonth, d);
+        const o = document.createElement('option');
+        o.value = d;
+        o.textContent = String(d).padStart(2,'0') + ' (' + DAYS_SHORT[dt.getDay()] + ')';
+        daySel.appendChild(o);
+      }
+      if(typeof empIdx === 'number') document.getElementById('noteEmpSelect').value = empIdx;
+      if(typeof day === 'number') daySel.value = day;
+      onNoteEmpOrDayChange();
+      document.getElementById('notesModal').classList.add('show');
+    }
+
+    function closeNotesModal(){
+      document.getElementById('notesModal').classList.remove('show');
+    }
+
+    function onNoteEmpOrDayChange(){
+      const empIdx = parseInt(document.getElementById('noteEmpSelect').value);
+      const day = parseInt(document.getElementById('noteDaySelect').value);
+      const existing = (data.notes && data.notes[empIdx] && data.notes[empIdx][day]) ? data.notes[empIdx][day] : '';
+      document.getElementById('noteText').value = existing;
+      refreshNoteList(empIdx);
+    }
+
+    function refreshNoteList(empIdx){
+      const wrap = document.getElementById('noteList');
+      const empNotes = (data.notes && data.notes[empIdx]) ? data.notes[empIdx] : {};
+      const days = Object.keys(empNotes).map(n=>parseInt(n)).sort((a,b)=>a-b);
+      if(days.length === 0){
+        wrap.innerHTML = '<p style="color:#a0aec0;">Koi note nahi hai.</p>';
+        return;
+      }
+      let html = '';
+      days.forEach(d=>{
+        const txt = esc(empNotes[d]);
+        html += '<div style="padding:5px 0;border-bottom:1px solid #edf2f7;cursor:pointer;" onclick="document.getElementById(\'noteDaySelect\').value='+d+';onNoteEmpOrDayChange();">'
+              + '<b>' + String(d).padStart(2,'0') + ':</b> ' + txt + '</div>';
+      });
+      wrap.innerHTML = html;
+    }
+
+    function saveNoteEntry(){
+      const empIdx = parseInt(document.getElementById('noteEmpSelect').value);
+      const day = parseInt(document.getElementById('noteDaySelect').value);
+      const text = document.getElementById('noteText').value.trim();
+      if(!data.notes) data.notes = {};
+      if(!data.notes[empIdx]) data.notes[empIdx] = {};
+      if(text === ''){
+        delete data.notes[empIdx][day];
+      } else {
+        data.notes[empIdx][day] = text;
+      }
+      savePeriod();
+      renderTable();
+      closeNotesModal();
+      showStatus('Note saved.');
+    }
+
+    function deleteNoteEntry(){
+      document.getElementById('noteText').value = '';
+      saveNoteEntry();
     }
 
     function bulkFillMonth(){
@@ -1379,6 +1475,7 @@
     } catch(e) {}
     window.addEventListener('beforeunload', () => { try{ if(!isMonthLocked(currentYear, currentMonth)) savePeriod(); }catch(e){} });
     document.getElementById('exportModal').addEventListener('click', function(e){ if(e.target === this) closeExportModal(); });
+    document.getElementById('notesModal').addEventListener('click', function(e){ if(e.target === this) closeNotesModal(); });
   </script>
 
   <script>
