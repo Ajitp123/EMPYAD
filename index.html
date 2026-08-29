@@ -201,6 +201,14 @@
         <br>
         <button class="btn btn-primary" onclick="restoreData()">Restore from File</button>
         <p id="backupStatus" style="margin-top:12px;font-size:0.85rem;color:#276749;"></p>
+        <h3 style="margin-top:28px;">Fix Old Entries</h3>
+        <p class="hint" style="margin:0 0 12px 0;">Selected years me jaha "8" bhara hai wo "P" ho jayega, aur jaha "16" bhara hai wo "DB" ho jayega.</p>
+        <div class="row">
+          <label>From Year:</label><select id="fixYearFrom"></select>
+          <label>To Year:</label><select id="fixYearTo"></select>
+        </div>
+        <button class="btn btn-primary" onclick="fixOldPDBEntries()" style="margin-top:10px;">Fix Now</button>
+        <p id="fixPdbStatus" style="margin-top:12px;font-size:0.85rem;color:#276749;"></p>
       </div>
     </div>
 
@@ -261,12 +269,12 @@
     const DAYS_SHORT = ['Su','Mo','Tu','We','Th','Fr','Sa'];
     const DEFAULT_RATE = 850;
     const defaultEmployees = [
-      { code: '45760', name: 'SITIKUMAR MAHANAND JHA', desig: 'COM.OP.' },
-      { code: '54456', name: 'SONI NIRMAL RAJENDRABHAI', desig: 'COM.OP.' },
-      { code: '76428', name: 'UMARIYA MEHULKUMAR', desig: 'COM.OP.' },
-      { code: '58742', name: 'VADI VASUDEV JANAKBHAI', desig: 'COM.OP.' },
-      { code: '46201', name: 'VIKASH KUMAR', desig: 'COM.OP.' },
-      { code: '83050', name: 'VIKRAM KUMAR', desig: 'COM.OP.' }
+      { code: '49630', name: 'AJEET PARMAR', desig: 'COM.OP.' },
+      { code: '54461', name: 'HEMANSHU TAILOR', desig: 'COM.OP.' },
+      { code: '64714', name: 'MEHUL PATEL', desig: 'COM.OP.' },
+      { code: '54496', name: 'RAKESH RAJPUT', desig: 'COM.OP.' },
+      { code: '66459', name: 'RAVI PATEL', desig: 'COM.OP.' },
+      { code: '', name: '', desig: 'COM.OP.' }
     ];
     let currentYear, currentMonth, data = {};
 
@@ -292,6 +300,48 @@
     }
     function saveRatesFor(y, m, arr){
       localStorage.setItem(ratesKey(y,m), JSON.stringify(arr));
+    }
+
+    function fixOldPDBEntries(){
+      const fromY = parseInt(document.getElementById('fixYearFrom').value);
+      const toY = parseInt(document.getElementById('fixYearTo').value);
+      const lo = Math.min(fromY, toY), hi = Math.max(fromY, toY);
+      const years = [];
+      for(let y=lo; y<=hi; y++) years.push(y);
+      let changedCells = 0, changedMonths = 0;
+      for(const y of years){
+        for(let m=0; m<12; m++){
+          const key = storageKey(y, m);
+          const raw = localStorage.getItem(key);
+          if(!raw) continue;
+          let period;
+          try{ period = JSON.parse(raw); }catch(e){ continue; }
+          if(!period || !period.attendance) continue;
+          let touched = false;
+          for(const empIdx in period.attendance){
+            const att = period.attendance[empIdx];
+            for(const d in att){
+              const v = String(att[d]).trim();
+              if(v === '8'){ att[d] = 'P'; changedCells++; touched = true; }
+              else if(v === '16'){ att[d] = 'DB'; changedCells++; touched = true; }
+            }
+          }
+          if(touched){
+            localStorage.setItem(key, JSON.stringify(period));
+            changedMonths++;
+          }
+        }
+      }
+      // Agar currently khula hua month bhi in years me hai, to screen turant refresh karo
+      if(years.includes(currentYear)){
+        data = loadPeriod(currentYear, currentMonth);
+        renderTable();
+      }
+      const statusEl = document.getElementById('fixPdbStatus');
+      statusEl.textContent = changedCells > 0
+        ? changedCells + ' entries update hui, ' + changedMonths + ' month(s) me (' + lo + '–' + hi + ').'
+        : 'Koi "8" ya "16" entry nahi mili ' + lo + '–' + hi + ' me.';
+      statusEl.style.color = '#276749';
     }
 
     function loadPeriod(y,m){
@@ -513,10 +563,10 @@
 
     function initSelectors(){
       const now = new Date();
-      ['yearSelect','reportYear','exportYear','clearYear','rateYear'].forEach(id=>{
+      ['yearSelect','reportYear','exportYear','clearYear','rateYear','fixYearFrom','fixYearTo'].forEach(id=>{
         const sel = document.getElementById(id); if(!sel) return;
         sel.innerHTML = '';
-        for(let y=2023; y<=now.getFullYear()+3; y++){
+        for(let y=2023; y<=now.getFullYear()+5; y++){
           const o = document.createElement('option'); o.value=y; o.textContent=y; sel.appendChild(o);
         }
       });
@@ -532,6 +582,8 @@
       document.getElementById('reportYear').value = currentYear;
       document.getElementById('rateYear').value = currentYear;
       document.getElementById('rateMonth').value = currentMonth;
+      document.getElementById('fixYearFrom').value = 2023;
+      document.getElementById('fixYearTo').value = currentYear;
     }
 
     function changePeriod(){
