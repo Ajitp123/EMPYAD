@@ -252,9 +252,13 @@
           <label>Month:</label><select id="clearMonth"></select>
         </div>
         <div class="row">
+          <label>Employee:</label><select id="clearEmpSelect"></select>
+        </div>
+        <div class="row">
           <input type="password" id="clearPass" placeholder="Enter password" style="flex:1;">
           <button class="btn btn-danger" onclick="clearMonthSecure()">Clear Month</button>
         </div>
+        <p class="hint" style="margin:6px 0 0 0;">"All Employees" select karoge to poore month ka data clear hoga, warna sirf select kiye hue employee ka.</p>
       </div>
       <div class="settings-box">
         <h3>Info</h3>
@@ -653,7 +657,7 @@
 
         html += '<tr>';
         html += '<td class="code-cell"><input class="code-input" id="code_'+i+'" value="'+esc(emp.code)+'" maxlength="10"></td>';
-        html += '<td class="name-cell"><input class="name-input" id="name_'+i+'" value="'+esc(emp.name)+'"></td>';
+        html += '<td class="name-cell"><input class="name-input" id="name_'+i+'" value="'+esc(emp.name)+'" oninput="refreshEmployeeSelectors()"></td>';
         html += '<td class="desig-cell">COM.OP.</td>';
         for(let d=1; d<=days; d++){
           const val = att[d] || '';
@@ -671,24 +675,40 @@
       colorizeAllCells();
       highlightTopSalary();
       applyLockState();
-      refreshBulkFillEmployees();
+      refreshEmployeeSelectors();
 
     }
 
-    function refreshBulkFillEmployees(){
-      const sel = document.getElementById('bulkEmpSelect');
+    function refreshEmployeeSelectors(){
+      refreshEmployeeSelect('bulkEmpSelect', false);
+      refreshEmployeeSelect('clearEmpSelect', true);
+    }
+
+    function refreshEmployeeSelect(selectId, withAllOption){
+      const sel = document.getElementById(selectId);
       if(!sel) return;
       const prevVal = sel.value;
       sel.innerHTML = '';
+      if(withAllOption){
+        const oAll = document.createElement('option');
+        oAll.value = 'all';
+        oAll.textContent = 'All Employees';
+        sel.appendChild(oAll);
+      }
       for(let i=0; i<MAX_EMP; i++){
-        const emp = (data.employees && data.employees[i]) ? data.employees[i] : defaultEmployees[i];
-        const label = (emp && emp.name && emp.name.trim()) ? emp.name.trim() : ('Employee ' + (i+1) + ' (blank)');
+        const nameEl = document.getElementById('name_'+i);
+        let liveName = nameEl ? nameEl.value.trim() : '';
+        if(!liveName){
+          const emp = (data.employees && data.employees[i]) ? data.employees[i] : defaultEmployees[i];
+          liveName = (emp && emp.name && emp.name.trim()) ? emp.name.trim() : '';
+        }
+        const label = liveName || ('Employee ' + (i+1) + ' (blank)');
         const o = document.createElement('option');
         o.value = i;
         o.textContent = label;
         sel.appendChild(o);
       }
-      if(prevVal !== '' && prevVal !== null && Number(prevVal) < MAX_EMP) sel.value = prevVal;
+      if(prevVal !== '' && prevVal !== null && (prevVal === 'all' || Number(prevVal) < MAX_EMP)) sel.value = prevVal;
     }
 
     function bulkFillMonth(){
@@ -1061,13 +1081,23 @@
       if(entered !== stored){ showStatus('Galat password!', true); return; }
       const y = parseInt(document.getElementById('clearYear').value);
       const m = parseInt(document.getElementById('clearMonth').value);
-      if(!confirm(MONTHS[m]+' '+y+' ki attendance clear karein?')) return;
+      const empSel = document.getElementById('clearEmpSelect').value;
       const period = loadPeriod(y, m);
-      period.attendance = {};
+      if(empSel === 'all'){
+        if(!confirm(MONTHS[m]+' '+y+' ki SAARE employees ki attendance clear karein?')) return;
+        period.attendance = {};
+        showStatus(MONTHS[m]+' '+y+' — sabhi employees clear ho gaye.');
+      } else {
+        const empIdx = parseInt(empSel);
+        const empOpt = document.getElementById('clearEmpSelect').selectedOptions[0];
+        const empLabel = empOpt ? empOpt.textContent : ('Employee ' + (empIdx+1));
+        if(!confirm(MONTHS[m]+' '+y+' — "'+empLabel+'" ki attendance clear karein?')) return;
+        if(period.attendance && period.attendance[empIdx]) delete period.attendance[empIdx];
+        showStatus(MONTHS[m]+' '+y+' — '+empLabel+' clear ho gaya.');
+      }
       localStorage.setItem(storageKey(y,m), JSON.stringify(period));
       if(y === currentYear && m === currentMonth){ data = period; renderTable(); }
       document.getElementById('clearPass').value = '';
-      showStatus(MONTHS[m]+' '+y+' cleared.');
     }
 
     // ----- PDF -----
