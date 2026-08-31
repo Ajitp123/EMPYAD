@@ -57,9 +57,13 @@
     table.att th, table.att td { border: 1px solid #a0aec0; padding: 3px 2px; text-align: center; vertical-align: middle; }
     table.att th { background: #2c5282; color: #fff; font-weight: 600; position: sticky; top: 0; z-index: 2; }
     table.att th.day-header { min-width: 26px; font-size: 0.65rem; }
-    table.att td.name-cell { text-align: left; padding: 3px 6px; min-width: 150px; background: #f7fafc; font-weight: 500; }
-    table.att td.code-cell { min-width: 52px; background: #edf2f7; font-weight: 600; }
+    table.att td.name-cell { text-align: left; padding: 3px 6px; width: 110px; min-width: 110px; max-width: 110px; background: #f7fafc; font-weight: 500; }
+    table.att td.code-cell { width: 48px; min-width: 48px; max-width: 48px; background: #edf2f7; font-weight: 600; }
     table.att td.desig-cell { min-width: 65px; background: #e2e8f0; color: #4a5568; font-weight: 600; font-size: 0.72rem; }
+    /* Code + Emp Name hamesha dikhte rahein, chahe jitna bhi side scroll karo — jaisa Excel me column freeze hota hai */
+    table.att td.code-cell, table.att thead tr:first-child th:nth-child(1) { position: sticky; left: 0; z-index: 1; }
+    table.att td.name-cell, table.att thead tr:first-child th:nth-child(2) { position: sticky; left: 48px; z-index: 1; box-shadow: 2px 0 4px rgba(0,0,0,0.15); }
+    table.att thead tr:first-child th:nth-child(1), table.att thead tr:first-child th:nth-child(2) { z-index: 3; }
     table.att input.att-input { width: 26px; height: 22px; text-align: center; border: 1px solid #cbd5e0; border-radius: 3px; font-size: 0.72rem; font-weight: 600; padding: 0; }
     table.att input.att-input:focus { border-color: #3182ce; outline: none; background: #ebf8ff; }
     table.att input.name-input, table.att input.code-input { width: 100%; border: 1px solid transparent; background: transparent; font-size: 0.75rem; font-weight: 500; padding: 1px 3px; }
@@ -142,6 +146,7 @@
         <input type="text" id="deptName" value="STAFF (COM.OP)" style="width:130px;background:#edf2f7;color:#4a5568;" readonly>
         <button class="btn btn-primary" onclick="saveData()">Save</button>
         <button class="btn btn-outline" onclick="openNotesModal()">📝 Notes</button>
+        <button class="btn btn-outline" onclick="autoFillTodayPresent(true)">✅ Khaali Din P Bharo</button>
         <button class="btn btn-outline" id="btnUnlock" style="display:none;" onclick="unlockMonth()">Unlock (Password)</button>
         <span id="lockBadge" style="display:none;margin-left:6px;padding:4px 10px;background:#c53030;color:#fff;border-radius:6px;font-size:0.8rem;font-weight:700;">LOCKED</span>
       </div>
@@ -179,12 +184,17 @@
       <div class="controls">
         <label>Year:</label>
         <select id="rateYear" onchange="renderRates()"></select>
-        <label>Month:</label>
+        <label>From Month:</label>
         <select id="rateMonth" onchange="renderRates()"></select>
         <button class="btn btn-primary" onclick="saveRates()">Save This Month</button>
         <button class="btn btn-success" onclick="saveRatesFullYear()">Save Full Year (Jan–Dec)</button>
         <button class="btn btn-outline" id="btnUnlockRates" style="display:none;" onclick="unlockRatesMonth()">Unlock (Password)</button>
         <span id="lockBadgeRates" style="display:none;margin-left:6px;padding:4px 10px;background:#c53030;color:#fff;border-radius:6px;font-size:0.8rem;font-weight:700;">LOCKED</span>
+      </div>
+      <div class="controls" style="margin-top:-8px;">
+        <label>To Month:</label>
+        <select id="rateToMonth"></select>
+        <button class="btn btn-success" onclick="saveRatesRange()">Save From Month → To Month</button>
       </div>
       <div class="panel-body">
         <h3>Salary Rate (Rs per duty / 8 hours)</h3>
@@ -199,7 +209,7 @@
     <div id="tab-report" class="tab-panel">
       <div class="controls">
         <label>Year:</label>
-        <select id="reportYear" onchange="renderYearSummary()"></select>
+        <select id="reportYear" onchange="reportYearChanged()"></select>
         <button class="btn btn-outline" onclick="renderYearSummary()">Refresh</button>
       </div>
       <div class="panel-body">
@@ -687,7 +697,7 @@
           const o = document.createElement('option'); o.value=y; o.textContent=y; sel.appendChild(o);
         }
       });
-      ['monthSelect','exportMonth','clearMonth','rateMonth','totalsFromMonth','totalsToMonth'].forEach(id=>{
+      ['monthSelect','exportMonth','clearMonth','rateMonth','rateToMonth','totalsFromMonth','totalsToMonth'].forEach(id=>{
         const sel = document.getElementById(id); if(!sel) return;
         sel.innerHTML = '';
         MONTHS.forEach((m,i)=>{ const o=document.createElement('option'); o.value=i; o.textContent=m; sel.appendChild(o); });
@@ -699,6 +709,7 @@
       document.getElementById('reportYear').value = currentYear;
       document.getElementById('rateYear').value = currentYear;
       document.getElementById('rateMonth').value = currentMonth;
+      document.getElementById('rateToMonth').value = 11;
       document.getElementById('fixYearFrom').value = 2023;
       document.getElementById('fixYearTo').value = currentYear;
       document.getElementById('fixNameYearFrom').value = 2023;
@@ -717,6 +728,23 @@
       currentMonth = parseInt(document.getElementById('monthSelect').value);
       data = loadPeriod(currentYear, currentMonth);
       renderTable();
+      const rY = document.getElementById('reportYear');
+      if(rY) rY.value = currentYear;
+    }
+
+    function reportYearChanged(){
+      const newYear = parseInt(document.getElementById('reportYear').value);
+      if(newYear !== currentYear){
+        if(!isMonthLocked(currentYear, currentMonth)){
+          try { savePeriod(); } catch(e) {}
+        }
+        currentYear = newYear;
+        const yS = document.getElementById('yearSelect');
+        if(yS) yS.value = currentYear;
+        data = loadPeriod(currentYear, currentMonth);
+        renderTable();
+      }
+      renderYearSummary();
     }
 
     function fillClearSelectors(){
@@ -926,6 +954,45 @@
       st.style.color = '#276749';
     }
 
+    function autoFillTodayPresent(manualClick){
+      const today = new Date();
+      const ty = today.getFullYear(), tm = today.getMonth(), td = today.getDate();
+      // Sirf real "aaj" wale month/year me hi kaam karega
+      if(currentYear !== ty || currentMonth !== tm){
+        if(manualClick) showStatus('Ye sirf current month/year me kaam karta hai.', true);
+        return;
+      }
+      if(isMonthLocked(currentYear, currentMonth)){
+        if(manualClick) showStatus('Month LOCKED hai. Pehle Unlock karo.', true);
+        return;
+      }
+      let filled = 0;
+      const touchedEmp = {};
+      for(let i=0; i<MAX_EMP; i++){
+        const nameEl = document.getElementById('name_'+i);
+        const hasName = nameEl && nameEl.value.trim() !== '';
+        if(!hasName) continue; // khaali slot me P mat bharo
+        // 1 tarikh se AAJ tak jitne bhi din khaali hain (app kai din na khola ho tab bhi), sab bhar do
+        for(let d=1; d<=td; d++){
+          const inp = document.getElementById('att_'+i+'_'+d);
+          if(inp && inp.value.trim() === ''){
+            inp.value = 'P';
+            colorizeCell(inp);
+            filled++;
+            touchedEmp[i] = true;
+          }
+        }
+      }
+      Object.keys(touchedEmp).forEach(i => updateSummary(parseInt(i)));
+      if(filled > 0){
+        savePeriod();
+        if(manualClick) showStatus('1 se ' + td + ' tarikh tak jo bhi khaali tha, ' + filled + ' entries "P" se bhar di. Jisko edit karna ho, seedha type karke badal do.');
+      } else if(manualClick){
+        showStatus('1 se ' + td + ' tarikh tak sab pehle se bhara hua hai — kuch change nahi kiya.');
+      }
+    }
+
+
     function normalizeInput(el){
       let v = el.value.trim();
       if(/^[a-zA-Z]+$/.test(v)) el.value = v.toUpperCase();
@@ -1058,6 +1125,32 @@
       applyRatesLockState();
       showStatus('Full year '+y+' rates saved & Locked (Jan–Dec)');
       if(y === currentYear){
+        try { renderTable(); } catch(e) {}
+      }
+    }
+
+    function saveRatesRange(){
+      const y = parseInt(document.getElementById('rateYear').value);
+      const fromM = parseInt(document.getElementById('rateMonth').value);
+      const toM = parseInt(document.getElementById('rateToMonth').value);
+      if(toM < fromM){
+        showStatus('To Month, From Month se pehle nahi ho sakta.', true);
+        return;
+      }
+      const arr = readRatesFromForm();
+      if(!confirm(y + ' — ' + MONTHS[fromM] + ' se ' + MONTHS[toM] + ' tak yahi rates set karke LOCK karein?')) return;
+      let saved = 0, skipped = 0;
+      for(let m=fromM; m<=toM; m++){
+        if(isMonthLocked(y, m)){ skipped++; continue; }
+        saveRatesFor(y, m, arr);
+        setMonthLocked(y, m, true);
+        saved++;
+      }
+      applyRatesLockState();
+      let msg = MONTHS[fromM] + '–' + MONTHS[toM] + ' ' + y + ': ' + saved + ' month(s) saved & Locked.';
+      if(skipped > 0) msg += ' (' + skipped + ' pehle se LOCKED the, unhe touch nahi kiya)';
+      showStatus(msg);
+      if(y === currentYear && currentMonth >= fromM && currentMonth <= toM){
         try { renderTable(); } catch(e) {}
       }
     }
@@ -1622,6 +1715,7 @@
     initSelectors();
     data = loadPeriod(currentYear, currentMonth);
     renderTable();
+    try { autoFillTodayPresent(false); } catch(e) {}
     try {
       let startTab = 'att';
       if(location.hash && location.hash.indexOf('tab=') >= 0){
