@@ -131,6 +131,7 @@
       <button class="tab-btn" data-tab="rates" onclick="switchTab('rates')">Salary Rates</button>
       <button class="tab-btn" data-tab="backup" onclick="switchTab('backup')">Backup</button>
       <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')">Settings</button>
+      <button class="tab-btn" data-tab="security" onclick="switchTab('security')">🔒 Security</button>
     </div>
 
     <div id="statusMsg" class="status"></div>
@@ -138,16 +139,16 @@
     <!-- TAB: Attendance -->
     <div id="tab-att" class="tab-panel active">
       <div class="controls">
-        <label>Year:</label>
+        <label>Year (Alt+Y):</label>
         <select id="yearSelect" onchange="changePeriod()"></select>
-        <label>Month:</label>
+        <label>Month (Alt+M):</label>
         <select id="monthSelect" onchange="changePeriod()"></select>
         <label>Dept:</label>
         <input type="text" id="deptName" value="STAFF (COM.OP)" style="width:130px;background:#edf2f7;color:#4a5568;" readonly>
-        <button class="btn btn-primary" onclick="saveData()">Save</button>
+        <button class="btn btn-primary" onclick="saveData()">Save (Alt+S)</button>
         <button class="btn btn-outline" onclick="openNotesModal()">📝 Notes</button>
         <button class="btn btn-outline" onclick="autoFillTodayPresent(true)">✅ Khaali Din P Bharo</button>
-        <button class="btn btn-outline" id="btnUnlock" style="display:none;" onclick="unlockMonth()">Unlock (Password)</button>
+        <button class="btn btn-outline" id="btnUnlock" style="display:none;" onclick="unlockMonth()">Unlock (Password) (Alt+U)</button>
         <span id="lockBadge" style="display:none;margin-left:6px;padding:4px 10px;background:#c53030;color:#fff;border-radius:6px;font-size:0.8rem;font-weight:700;">LOCKED</span>
       </div>
       <div class="table-wrap">
@@ -186,15 +187,15 @@
         <select id="rateYear" onchange="renderRates()"></select>
         <label>From Month:</label>
         <select id="rateMonth" onchange="renderRates()"></select>
-        <button class="btn btn-primary" onclick="saveRates()">Save This Month</button>
-        <button class="btn btn-success" onclick="saveRatesFullYear()">Save Full Year (Jan–Dec)</button>
+        <button class="btn btn-primary" onclick="saveRates()">Save This Month (Alt+M)</button>
+        <button class="btn btn-success" onclick="saveRatesFullYear()">Save Full Year (Jan–Dec) (Alt+Y)</button>
         <button class="btn btn-outline" id="btnUnlockRates" style="display:none;" onclick="unlockRatesMonth()">Unlock (Password)</button>
         <span id="lockBadgeRates" style="display:none;margin-left:6px;padding:4px 10px;background:#c53030;color:#fff;border-radius:6px;font-size:0.8rem;font-weight:700;">LOCKED</span>
       </div>
       <div class="controls" style="margin-top:-8px;">
         <label>To Month:</label>
         <select id="rateToMonth"></select>
-        <button class="btn btn-success" onclick="saveRatesRange()">Save From Month → To Month</button>
+        <button class="btn btn-success" onclick="saveRatesRange()">Save From Month → To Month (Alt+R)</button>
       </div>
       <div class="panel-body">
         <h3>Salary Rate (Rs per duty / 8 hours)</h3>
@@ -210,7 +211,7 @@
       <div class="controls">
         <label>Year:</label>
         <select id="reportYear" onchange="reportYearChanged()"></select>
-        <button class="btn btn-outline" onclick="renderYearSummary()">Refresh</button>
+        <button class="btn btn-outline" onclick="renderYearSummary()">Refresh (Alt+R)</button>
       </div>
       <div class="panel-body">
         <h3>Employee-wise Month H / L / A</h3>
@@ -229,9 +230,9 @@
         <label>To:</label>
         <select id="totalsToYear"></select>
         <select id="totalsToMonth"></select>
-        <label>Employee:</label>
+        <label>Employee (Alt+E):</label>
         <select id="totalsEmpSelect"></select>
-        <button class="btn btn-primary" onclick="renderGrandTotal()">Show Total</button>
+        <button class="btn btn-primary" onclick="renderGrandTotal()">Show Total (Alt+T)</button>
       </div>
       <div class="panel-body">
         <h3>Employee-wise Total (Selected Range)</h3>
@@ -308,6 +309,29 @@
         <p><b>Android:</b> naya file open karo, phir Chrome menu → History → Clear browsing data → Cookies (is site) ya page hard refresh.</p>
       </div>
     </div>
+
+    <div id="tab-security" class="tab-panel">
+      <div class="settings-box">
+        <h3>🔒 Salary Rates / Backup / Settings — Tab Password</h3>
+        <p>Ye password sirf <b>Salary Rates</b>, <b>Backup</b> aur <b>Settings</b> — in 3 tabs me jaane ke liye chahiye. Ye "Clear Month" wale password se bilkul alag hai.</p>
+        <p id="tabsPassBadge" style="font-weight:700;"></p>
+        <div class="row">
+          <input type="password" id="newTabsPass" placeholder="New tab password" style="flex:1;">
+          <input type="password" id="confirmTabsPass" placeholder="Confirm" style="flex:1;">
+          <button class="btn btn-primary" onclick="setTabsPassword()">Set / Update</button>
+        </div>
+        <p id="tabsPassStatus" style="font-size:0.8rem;color:#276749;"></p>
+        <p class="hint" style="margin-top:10px;">Ek baar sahi password daalne ke baad, jab tak app band nahi karte, dobara nahi poochega.</p>
+      </div>
+      <div class="settings-box">
+        <h3>⌨️ Keyboard Shortcuts (Computer)</h3>
+        <p class="hint" style="margin:0 0 8px 0;"><b>Ctrl + ←</b> / <b>Ctrl + →</b> — Pichla / Agla tab</p>
+        <p class="hint" style="margin:0 0 4px 0;"><b>Attendance:</b> Alt+Y = Year select, Alt+M = Month select, Alt+S = Save, Alt+U = Unlock</p>
+        <p class="hint" style="margin:0 0 4px 0;"><b>Year Summary:</b> Alt+R = Refresh</p>
+        <p class="hint" style="margin:0 0 4px 0;"><b>Grand Total:</b> Alt+E = Employee select, Alt+T = Show Total</p>
+        <p class="hint" style="margin:0 0 4px 0;"><b>Salary Rates:</b> Alt+M = Save This Month, Alt+Y = Save Full Year, Alt+R = Save From Month → To Month</p>
+      </div>
+    </div>
   </div>
 
   <div class="modal-overlay" id="exportModal">
@@ -368,6 +392,7 @@
     function storageKey(y,m){ return 'att_'+y+'_'+m; }
     function ratesKey(y,m){ return 'att_rates_'+y+'_'+m; }
     function passKey(){ return 'att_clear_password'; }
+    function tabsPassKey(){ return 'att_tabs_password'; }
     function lockKey(y,m){ return 'att_lock_'+y+'_'+m; }
     function isMonthLocked(y,m){ return localStorage.getItem(lockKey(y,m)) === '1'; }
     function setMonthLocked(y,m, locked){
@@ -582,8 +607,31 @@
 
     let currentTab = 'att';
 
+    let protectedUnlocked = false;
+    const PROTECTED_TABS = ['rates', 'backup', 'settings'];
+
     function switchTab(name, fromPopstate){
       if(!name) name = 'att';
+
+      // Salary Rates / Backup / Settings — password se protect (agar password set hai)
+      if(PROTECTED_TABS.includes(name) && !protectedUnlocked){
+        const stored = localStorage.getItem(tabsPassKey());
+        if(stored){
+          const entered = prompt('Ye tab password protected hai. Password daalo:');
+          if(entered === null){
+            // user ne cancel kiya — tab change mat karo
+            if(fromPopstate){ try { history.replaceState({tab: currentTab}, '', '#tab='+currentTab); } catch(e) {} }
+            return;
+          }
+          if(entered !== stored){
+            alert('Galat password!');
+            if(fromPopstate){ try { history.replaceState({tab: currentTab}, '', '#tab='+currentTab); } catch(e) {} }
+            return;
+          }
+          protectedUnlocked = true;
+        }
+      }
+
       // Always sync Attendance form → data before leaving / opening other tabs
       try { if(document.getElementById('code_0') && !isMonthLocked(currentYear, currentMonth)) savePeriod(); } catch(e) {}
 
@@ -618,6 +666,7 @@
         const bs = document.getElementById('backupStatus');
         if(bs) bs.textContent = '';
       }
+      if(name === 'security') refreshTabsPassBadge();
     }
 
     // Android / browser Back button → previous tab
@@ -627,15 +676,57 @@
       else if(location.hash && location.hash.indexOf('tab=') >= 0){
         tab = location.hash.replace('#tab=','').split('&')[0] || 'att';
       }
-      const valid = ['att','report','totals','rates','backup','settings'];
+      const valid = ['att','report','totals','rates','backup','settings','security'];
       if(valid.indexOf(tab) < 0) tab = 'att';
       switchTab(tab, true);
+    });
+
+    // Computer keyboard: Ctrl + Left/Right arrow se pichla/agla tab (aasan — arrow keys ke paas hi ungli rehti hai)
+    window.addEventListener('keydown', function(e){
+      if(!e.ctrlKey || e.altKey || e.metaKey) return;
+      if(e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      const tabOrder = ['att','report','totals','rates','backup','settings','security'];
+      let idx = tabOrder.indexOf(currentTab);
+      if(idx < 0) idx = 0;
+      e.preventDefault();
+      if(e.key === 'ArrowRight') idx = (idx + 1) % tabOrder.length;
+      else idx = (idx - 1 + tabOrder.length) % tabOrder.length;
+      switchTab(tabOrder[idx]);
+    });
+
+    // Computer keyboard: Alt + letter — har tab ke apne shortcuts (button/select pe hint likha hua hai)
+    window.addEventListener('keydown', function(e){
+      if(!e.altKey || e.ctrlKey || e.metaKey) return;
+      const key = e.key.toLowerCase();
+      let handled = true;
+      if(currentTab === 'att'){
+        if(key === 'y'){ const el = document.getElementById('yearSelect'); if(el) el.focus(); }
+        else if(key === 'm'){ const el = document.getElementById('monthSelect'); if(el) el.focus(); }
+        else if(key === 's'){ saveData(); }
+        else if(key === 'u'){ unlockMonth(); }
+        else handled = false;
+      } else if(currentTab === 'report'){
+        if(key === 'r'){ renderYearSummary(); }
+        else handled = false;
+      } else if(currentTab === 'totals'){
+        if(key === 'e'){ const el = document.getElementById('totalsEmpSelect'); if(el) el.focus(); }
+        else if(key === 't'){ renderGrandTotal(); }
+        else handled = false;
+      } else if(currentTab === 'rates'){
+        if(key === 'm'){ saveRates(); }
+        else if(key === 'y'){ saveRatesFullYear(); }
+        else if(key === 'r'){ saveRatesRange(); }
+        else handled = false;
+      } else {
+        handled = false;
+      }
+      if(handled) e.preventDefault();
     });
 
     // Swipe left/right to change tabs (mobile)
     // Works: 1) left/right EDGE of screen  2) header / tabs / controls / footer
     (function(){
-      const order = ['att','report','totals','rates','backup','settings'];
+      const order = ['att','report','totals','rates','backup','settings','security'];
       let sx = 0, sy = 0, tracking = false, edgeMode = false;
       const EDGE = 40; // px from left or right edge
 
@@ -784,7 +875,7 @@
           const val = att[d] || '';
           const noteText = (data.notes && data.notes[i] && data.notes[i][d]) ? data.notes[i][d] : '';
           const hasNote = noteText.trim() !== '';
-          html += '<td class="att-cell'+(hasNote?' has-note':'')+'"><input class="att-input" id="att_'+i+'_'+d+'" value="'+esc(val)+'" maxlength="5" oninput="normalizeInput(this)" onchange="updateSummary('+i+')" onblur="normalizeInput(this);updateSummary('+i+')" ondblclick="openNotesModal('+i+','+d+')" title="'+esc(noteText)+'"></td>';
+          html += '<td class="att-cell'+(hasNote?' has-note':'')+'"><input class="att-input" id="att_'+i+'_'+d+'" value="'+esc(val)+'" maxlength="5" oninput="normalizeInput(this)" onchange="updateSummary('+i+')" onblur="normalizeInput(this);updateSummary('+i+')" ondblclick="openNotesModal('+i+','+d+')" onkeydown="attCellKeyNav(event,'+i+','+d+')" title="'+esc(noteText)+'"></td>';
         }
         html += '<td class="summary-cell" id="sum_h_'+i+'">'+sum.h+'</td>';
         html += '<td class="summary-cell" id="sum_l_'+i+'">'+sum.l+'</td>';
@@ -992,6 +1083,23 @@
       }
     }
 
+
+    function attCellKeyNav(ev, empIdx, day){
+      if(ev.ctrlKey || ev.altKey || ev.metaKey) return; // Ctrl+Arrow tab switch ke liye chhod do
+      const key = ev.key;
+      if(key !== 'ArrowUp' && key !== 'ArrowDown' && key !== 'ArrowLeft' && key !== 'ArrowRight') return;
+      ev.preventDefault();
+      let targetId = null;
+      if(key === 'ArrowUp') targetId = 'att_'+(empIdx-1)+'_'+day;
+      else if(key === 'ArrowDown') targetId = 'att_'+(empIdx+1)+'_'+day;
+      else if(key === 'ArrowLeft') targetId = 'att_'+empIdx+'_'+(day-1);
+      else if(key === 'ArrowRight') targetId = 'att_'+empIdx+'_'+(day+1);
+      const target = targetId ? document.getElementById(targetId) : null;
+      if(target){
+        target.focus();
+        target.select();
+      }
+    }
 
     function normalizeInput(el){
       let v = el.value.trim();
@@ -1420,6 +1528,27 @@
       showStatus('Password saved!');
     }
 
+    function setTabsPassword(){
+      const p1 = document.getElementById('newTabsPass').value;
+      const p2 = document.getElementById('confirmTabsPass').value;
+      if(!p1 || p1.length < 4){ showStatus('Password kam se kam 4 characters ka ho', true); return; }
+      if(p1 !== p2){ showStatus('Password match nahi hua', true); return; }
+      localStorage.setItem(tabsPassKey(), p1);
+      document.getElementById('newTabsPass').value = '';
+      document.getElementById('confirmTabsPass').value = '';
+      document.getElementById('tabsPassStatus').textContent = 'Tab password set / updated successfully.';
+      refreshTabsPassBadge();
+      showStatus('Tab password saved!');
+    }
+
+    function refreshTabsPassBadge(){
+      const badge = document.getElementById('tabsPassBadge');
+      if(!badge) return;
+      const stored = localStorage.getItem(tabsPassKey());
+      badge.textContent = stored ? '✅ Password set — Salary Rates/Backup/Settings LOCKED hain.' : '⚠️ Abhi password set nahi hai — koi bhi in tabs me ja sakta hai.';
+      badge.style.color = stored ? '#276749' : '#c53030';
+    }
+
     function clearMonthSecure(){
       const stored = localStorage.getItem(passKey());
       if(!stored){ showStatus('Pehle Settings me password set karo', true); return; }
@@ -1453,11 +1582,6 @@
       document.getElementById('exportModal').classList.add('show');
     }
     function closeExportModal(){ document.getElementById('exportModal').classList.remove('show'); }
-
-    function toggleExportMonth(){
-      const t = document.getElementById('exportType').value;
-      document.getElementById('exportMonthRow').style.display = (t === 'year') ? 'none' : 'flex';
-    }
 
     function toggleExportMonth(){
       const t = document.getElementById('exportType').value;
