@@ -183,17 +183,17 @@
     <!-- TAB: Salary Rates (per year + month) -->
     <div id="tab-rates" class="tab-panel">
       <div class="controls">
-        <label>Year:</label>
+        <label>Year (Alt+Y):</label>
         <select id="rateYear" onchange="renderRates()"></select>
-        <label>From Month:</label>
+        <label>From Month (Alt+F):</label>
         <select id="rateMonth" onchange="renderRates()"></select>
         <button class="btn btn-primary" onclick="saveRates()">Save This Month (Alt+M)</button>
-        <button class="btn btn-success" onclick="saveRatesFullYear()">Save Full Year (Jan–Dec) (Alt+Y)</button>
+        <button class="btn btn-success" onclick="saveRatesFullYear()">Save Full Year (Jan–Dec) (Alt+L)</button>
         <button class="btn btn-outline" id="btnUnlockRates" style="display:none;" onclick="unlockRatesMonth()">Unlock (Password)</button>
         <span id="lockBadgeRates" style="display:none;margin-left:6px;padding:4px 10px;background:#c53030;color:#fff;border-radius:6px;font-size:0.8rem;font-weight:700;">LOCKED</span>
       </div>
       <div class="controls" style="margin-top:-8px;">
-        <label>To Month:</label>
+        <label>To Month (Alt+O):</label>
         <select id="rateToMonth"></select>
         <button class="btn btn-success" onclick="saveRatesRange()">Save From Month → To Month (Alt+R)</button>
       </div>
@@ -209,7 +209,7 @@
     <!-- TAB: Year Summary -->
     <div id="tab-report" class="tab-panel">
       <div class="controls">
-        <label>Year:</label>
+        <label>Year (Alt+Y):</label>
         <select id="reportYear" onchange="reportYearChanged()"></select>
         <button class="btn btn-outline" onclick="renderYearSummary()">Refresh (Alt+R)</button>
       </div>
@@ -224,10 +224,10 @@
     <!-- TAB: Grand Total (custom range) -->
     <div id="tab-totals" class="tab-panel">
       <div class="controls">
-        <label>From:</label>
+        <label>From (Alt+F):</label>
         <select id="totalsFromYear"></select>
         <select id="totalsFromMonth"></select>
-        <label>To:</label>
+        <label>To (Alt+O):</label>
         <select id="totalsToYear"></select>
         <select id="totalsToMonth"></select>
         <label>Employee (Alt+E):</label>
@@ -326,10 +326,10 @@
       <div class="settings-box">
         <h3>⌨️ Keyboard Shortcuts (Computer)</h3>
         <p class="hint" style="margin:0 0 8px 0;"><b>Ctrl + ←</b> / <b>Ctrl + →</b> — Pichla / Agla tab</p>
-        <p class="hint" style="margin:0 0 4px 0;"><b>Attendance:</b> Alt+Y = Year select, Alt+M = Month select, Alt+S = Save, Alt+U = Unlock</p>
-        <p class="hint" style="margin:0 0 4px 0;"><b>Year Summary:</b> Alt+R = Refresh</p>
-        <p class="hint" style="margin:0 0 4px 0;"><b>Grand Total:</b> Alt+E = Employee select, Alt+T = Show Total</p>
-        <p class="hint" style="margin:0 0 4px 0;"><b>Salary Rates:</b> Alt+M = Save This Month, Alt+Y = Save Full Year, Alt+R = Save From Month → To Month</p>
+        <p class="hint" style="margin:0 0 4px 0;"><b>Attendance:</b> Alt+Y = Year select, Alt+M = Month select, Alt+S = Save, Alt+U = Unlock. Cell ke andar Arrow keys se kisi bhi date/employee par jump karo.</p>
+        <p class="hint" style="margin:0 0 4px 0;"><b>Year Summary:</b> Alt+Y = Year select, Alt+R = Refresh</p>
+        <p class="hint" style="margin:0 0 4px 0;"><b>Grand Total:</b> Alt+F = From Year, Alt+O = To Year, Alt+E = Employee select, Alt+T = Show Total</p>
+        <p class="hint" style="margin:0 0 4px 0;"><b>Salary Rates:</b> Alt+Y = Year select, Alt+F = From Month, Alt+O = To Month, Alt+M = Save This Month, Alt+L = Save Full Year, Alt+R = Save From Month → To Month</p>
       </div>
     </div>
   </div>
@@ -706,15 +706,21 @@
         else if(key === 'u'){ unlockMonth(); }
         else handled = false;
       } else if(currentTab === 'report'){
-        if(key === 'r'){ renderYearSummary(); }
+        if(key === 'y'){ const el = document.getElementById('reportYear'); if(el) el.focus(); }
+        else if(key === 'r'){ renderYearSummary(); }
         else handled = false;
       } else if(currentTab === 'totals'){
-        if(key === 'e'){ const el = document.getElementById('totalsEmpSelect'); if(el) el.focus(); }
+        if(key === 'f'){ const el = document.getElementById('totalsFromYear'); if(el) el.focus(); }
+        else if(key === 'o'){ const el = document.getElementById('totalsToYear'); if(el) el.focus(); }
+        else if(key === 'e'){ const el = document.getElementById('totalsEmpSelect'); if(el) el.focus(); }
         else if(key === 't'){ renderGrandTotal(); }
         else handled = false;
       } else if(currentTab === 'rates'){
-        if(key === 'm'){ saveRates(); }
-        else if(key === 'y'){ saveRatesFullYear(); }
+        if(key === 'y'){ const el = document.getElementById('rateYear'); if(el) el.focus(); }
+        else if(key === 'f'){ const el = document.getElementById('rateMonth'); if(el) el.focus(); }
+        else if(key === 'o'){ const el = document.getElementById('rateToMonth'); if(el) el.focus(); }
+        else if(key === 'm'){ saveRates(); }
+        else if(key === 'l'){ saveRatesFullYear(); }
         else if(key === 'r'){ saveRatesRange(); }
         else handled = false;
       } else {
@@ -722,6 +728,19 @@
       }
       if(handled) e.preventDefault();
     });
+
+    // Computer: mouse wheel se table ko side-scroll karo (dono direction — aage/peeche)
+    (function(){
+      const wrap = document.querySelector('.table-wrap');
+      if(!wrap) return;
+      wrap.addEventListener('wheel', function(e){
+        if(wrap.scrollWidth <= wrap.clientWidth) return; // scroll karne ko kuch nahi hai
+        if(Math.abs(e.deltaY) >= Math.abs(e.deltaX)){
+          wrap.scrollLeft += e.deltaY;
+          e.preventDefault();
+        }
+      }, { passive: false });
+    })();
 
     // Swipe left/right to change tabs (mobile)
     // Works: 1) left/right EDGE of screen  2) header / tabs / controls / footer
@@ -877,12 +896,12 @@
           const hasNote = noteText.trim() !== '';
           html += '<td class="att-cell'+(hasNote?' has-note':'')+'"><input class="att-input" id="att_'+i+'_'+d+'" value="'+esc(val)+'" maxlength="5" oninput="normalizeInput(this)" onchange="updateSummary('+i+')" onblur="normalizeInput(this);updateSummary('+i+')" ondblclick="openNotesModal('+i+','+d+')" onkeydown="attCellKeyNav(event,'+i+','+d+')" title="'+esc(noteText)+'"></td>';
         }
-        html += '<td class="summary-cell" id="sum_h_'+i+'">'+sum.h+'</td>';
-        html += '<td class="summary-cell" id="sum_l_'+i+'">'+sum.l+'</td>';
-        html += '<td class="summary-cell" id="sum_a_'+i+'">'+sum.a+'</td>';
-        html += '<td class="summary-cell" id="sum_pp_'+i+'">'+sum.pp+'</td>';
-        html += '<td class="summary-cell" id="sum_p_'+i+'">'+sum.pHours+'</td>';
-        html += '<td class="salary-cell" id="sum_sal_'+i+'">'+sal.toLocaleString('en-IN')+'</td>';
+        html += '<td class="summary-cell" id="sum_h_'+i+'" tabindex="0" onkeydown="summaryCellKeyNav(event,'+i+',0,'+days+')">'+sum.h+'</td>';
+        html += '<td class="summary-cell" id="sum_l_'+i+'" tabindex="0" onkeydown="summaryCellKeyNav(event,'+i+',1,'+days+')">'+sum.l+'</td>';
+        html += '<td class="summary-cell" id="sum_a_'+i+'" tabindex="0" onkeydown="summaryCellKeyNav(event,'+i+',2,'+days+')">'+sum.a+'</td>';
+        html += '<td class="summary-cell" id="sum_pp_'+i+'" tabindex="0" onkeydown="summaryCellKeyNav(event,'+i+',3,'+days+')">'+sum.pp+'</td>';
+        html += '<td class="summary-cell" id="sum_p_'+i+'" tabindex="0" onkeydown="summaryCellKeyNav(event,'+i+',4,'+days+')">'+sum.pHours+'</td>';
+        html += '<td class="salary-cell" id="sum_sal_'+i+'" tabindex="0" onkeydown="summaryCellKeyNav(event,'+i+',5,'+days+')">'+sal.toLocaleString('en-IN')+'</td>';
         html += '</tr>';
       }
       body.innerHTML = html;
@@ -1084,20 +1103,46 @@
     }
 
 
+    const SUMMARY_COLS = ['h','l','a','pp','p','sal'];
+
     function attCellKeyNav(ev, empIdx, day){
       if(ev.ctrlKey || ev.altKey || ev.metaKey) return; // Ctrl+Arrow tab switch ke liye chhod do
       const key = ev.key;
       if(key !== 'ArrowUp' && key !== 'ArrowDown' && key !== 'ArrowLeft' && key !== 'ArrowRight') return;
       ev.preventDefault();
-      let targetId = null;
-      if(key === 'ArrowUp') targetId = 'att_'+(empIdx-1)+'_'+day;
-      else if(key === 'ArrowDown') targetId = 'att_'+(empIdx+1)+'_'+day;
-      else if(key === 'ArrowLeft') targetId = 'att_'+empIdx+'_'+(day-1);
-      else if(key === 'ArrowRight') targetId = 'att_'+empIdx+'_'+(day+1);
-      const target = targetId ? document.getElementById(targetId) : null;
+      const days = getDaysInMonth(currentYear, currentMonth);
+      let target = null;
+      if(key === 'ArrowUp') target = document.getElementById('att_'+(empIdx-1)+'_'+day);
+      else if(key === 'ArrowDown') target = document.getElementById('att_'+(empIdx+1)+'_'+day);
+      else if(key === 'ArrowLeft') target = document.getElementById('att_'+empIdx+'_'+(day-1));
+      else if(key === 'ArrowRight'){
+        if(day < days) target = document.getElementById('att_'+empIdx+'_'+(day+1));
+        else target = document.getElementById('sum_h_'+empIdx); // last date ke baad H/L/A/PP/P/Salary me chala jao
+      }
       if(target){
         target.focus();
-        target.select();
+        if(target.select) target.select();
+        target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      }
+    }
+
+    function summaryCellKeyNav(ev, empIdx, colIndex, days){
+      if(ev.ctrlKey || ev.altKey || ev.metaKey) return;
+      const key = ev.key;
+      if(key !== 'ArrowUp' && key !== 'ArrowDown' && key !== 'ArrowLeft' && key !== 'ArrowRight') return;
+      ev.preventDefault();
+      let target = null;
+      if(key === 'ArrowUp') target = document.getElementById('sum_'+SUMMARY_COLS[colIndex]+'_'+(empIdx-1));
+      else if(key === 'ArrowDown') target = document.getElementById('sum_'+SUMMARY_COLS[colIndex]+'_'+(empIdx+1));
+      else if(key === 'ArrowRight' && colIndex < SUMMARY_COLS.length-1) target = document.getElementById('sum_'+SUMMARY_COLS[colIndex+1]+'_'+empIdx);
+      else if(key === 'ArrowLeft'){
+        if(colIndex > 0) target = document.getElementById('sum_'+SUMMARY_COLS[colIndex-1]+'_'+empIdx);
+        else target = document.getElementById('att_'+empIdx+'_'+days); // H se peeche jao to wapas aakhri date pe
+      }
+      if(target){
+        target.focus();
+        if(target.select) target.select();
+        target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
       }
     }
 
