@@ -59,10 +59,13 @@
     table.att th.day-header { min-width: 26px; font-size: 0.65rem; }
     table.att td.name-cell { text-align: left; padding: 3px 6px; width: 110px; min-width: 110px; max-width: 110px; background: #f7fafc; font-weight: 500; }
     table.att td.code-cell { width: 48px; min-width: 48px; max-width: 48px; background: #edf2f7; font-weight: 600; }
-    table.att td.desig-cell { min-width: 65px; background: #e2e8f0; color: #4a5568; font-weight: 600; font-size: 0.72rem; }
+    table.att td.desig-cell { width: 65px; min-width: 65px; max-width: 65px; background: #e2e8f0; color: #4a5568; font-weight: 600; font-size: 0.72rem; }
+    /* Code + Emp Name + Desig. — teeno hamesha freeze rehenge, side scroll me kabhi hide nahi honge */
+    table.att td.desig-cell, table.att thead tr:first-child th:nth-child(3) { position: sticky; left: 158px; z-index: 1; box-shadow: 2px 0 4px rgba(0,0,0,0.15); }
+    table.att thead tr:first-child th:nth-child(3) { z-index: 3; }
     /* Code + Emp Name hamesha dikhte rahein, chahe jitna bhi side scroll karo — jaisa Excel me column freeze hota hai */
     table.att td.code-cell, table.att thead tr:first-child th:nth-child(1) { position: sticky; left: 0; z-index: 1; }
-    table.att td.name-cell, table.att thead tr:first-child th:nth-child(2) { position: sticky; left: 48px; z-index: 1; box-shadow: 2px 0 4px rgba(0,0,0,0.15); }
+    table.att td.name-cell, table.att thead tr:first-child th:nth-child(2) { position: sticky; left: 48px; z-index: 1; }
     table.att thead tr:first-child th:nth-child(1), table.att thead tr:first-child th:nth-child(2) { z-index: 3; }
     table.att input.att-input { width: 26px; height: 22px; text-align: center; border: 1px solid #cbd5e0; border-radius: 3px; font-size: 0.72rem; font-weight: 600; padding: 0; }
     table.att input.att-input:focus { border-color: #3182ce; outline: none; background: #ebf8ff; }
@@ -85,7 +88,7 @@
     table.rates th, table.rates td { border: 1px solid #a0aec0; padding: 8px 10px; text-align: left; }
     table.rates th { background: #2c5282; color: #fff; }
     table.rates input[type="number"] { width: 110px; }
-    .panel-body { padding: 16px; }
+    .panel-body { padding: 16px; overflow-x: auto; }
     .panel-body h3 { margin-bottom: 12px; color: #2c5282; font-size: 1.1rem; }
     table.summary { width: 100%; border-collapse: collapse; font-size: 0.8rem; margin-top: 10px; margin-bottom: 20px; }
     table.summary th, table.summary td { border: 1px solid #a0aec0; padding: 5px 6px; text-align: center; }
@@ -161,7 +164,6 @@
 
       <div class="settings-box" style="margin:16px;">
         <h3>Bulk Fill — Pura Month Bharo</h3>
-        <p class="hint" style="margin:0 0 12px 0;">Employee aur value select karke pure selected month (upar wale Year/Month) ke saare din ek saath bhar jayenge.</p>
         <div class="row">
           <label>Employee:</label>
           <select id="bulkEmpSelect"></select>
@@ -236,7 +238,6 @@
       </div>
       <div class="panel-body">
         <h3>Employee-wise Total (Selected Range)</h3>
-        <p class="hint" style="margin:0 0 12px 0;">Jitne bhi employees ka Attendance tab me naam bhara hai, sabka is date range ka total A, total L aur total Salary.</p>
         <div id="grandTotalBox"></div>
       </div>
     </div>
@@ -355,6 +356,20 @@
       <div class="actions">
         <button class="btn btn-outline" onclick="closeExportModal()">Cancel</button>
         <button class="btn btn-success" onclick="doExportPDF()">Download PDF</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="passwordPromptModal">
+    <div class="modal" style="max-width:340px;">
+      <h3 id="passwordPromptTitle">🔒 Password</h3>
+      <div class="row" style="flex-direction:column;align-items:stretch;gap:6px;">
+        <input type="password" id="passwordPromptInput" placeholder="Password" style="width:100%;border:1px solid #cbd5e0;border-radius:6px;padding:10px;font-size:1rem;" onkeydown="if(event.key==='Enter'){confirmPasswordPrompt();}">
+      </div>
+      <p id="passwordPromptError" style="color:#c53030;font-size:0.8rem;min-height:1em;margin:6px 0 0 0;"></p>
+      <div class="actions">
+        <button class="btn btn-outline" onclick="cancelPasswordPrompt()">Cancel</button>
+        <button class="btn btn-primary" onclick="confirmPasswordPrompt()">OK</button>
       </div>
     </div>
   </div>
@@ -599,15 +614,11 @@
         showStatus('Pehle Settings me password set karo', true);
         return;
       }
-      const entered = prompt('Unlock ke liye password likho:');
-      if(entered === null) return;
-      if(entered !== stored){
-        showStatus('Galat password!', true);
-        return;
-      }
-      setMonthLocked(currentYear, currentMonth, false);
-      applyLockState();
-      showStatus('Unlocked — ab change kar sakte ho. Save ke baad phir lock ho jayega.');
+      askPassword('Unlock ke liye password:', stored, function(){
+        setMonthLocked(currentYear, currentMonth, false);
+        applyLockState();
+        showStatus('Unlocked — ab change kar sakte ho. Save ke baad phir lock ho jayega.');
+      });
     }
 
 
@@ -616,6 +627,37 @@
     let protectedUnlocked = false;
     const PROTECTED_TABS = ['rates', 'backup', 'settings'];
 
+    // ----- Custom password modal (native prompt() password ko plain-text dikhata tha, isliye masked input wala apna modal) -----
+    let passwordPromptCallback = null;
+    function askPassword(title, correctPassword, onSuccess, onCancel){
+      document.getElementById('passwordPromptTitle').textContent = title;
+      document.getElementById('passwordPromptInput').value = '';
+      document.getElementById('passwordPromptError').textContent = '';
+      passwordPromptCallback = { correct: correctPassword, onSuccess: onSuccess, onCancel: onCancel };
+      document.getElementById('passwordPromptModal').classList.add('show');
+      setTimeout(function(){ document.getElementById('passwordPromptInput').focus(); }, 50);
+    }
+    function confirmPasswordPrompt(){
+      if(!passwordPromptCallback) return;
+      const entered = document.getElementById('passwordPromptInput').value;
+      if(entered === passwordPromptCallback.correct){
+        document.getElementById('passwordPromptModal').classList.remove('show');
+        const cb = passwordPromptCallback.onSuccess;
+        passwordPromptCallback = null;
+        if(cb) cb();
+      } else {
+        document.getElementById('passwordPromptError').textContent = 'Galat password!';
+        document.getElementById('passwordPromptInput').value = '';
+        document.getElementById('passwordPromptInput').focus();
+      }
+    }
+    function cancelPasswordPrompt(){
+      document.getElementById('passwordPromptModal').classList.remove('show');
+      const cb = passwordPromptCallback ? passwordPromptCallback.onCancel : null;
+      passwordPromptCallback = null;
+      if(cb) cb();
+    }
+
     function switchTab(name, fromPopstate){
       if(!name) name = 'att';
 
@@ -623,21 +665,21 @@
       if(PROTECTED_TABS.includes(name) && !protectedUnlocked){
         const stored = localStorage.getItem(tabsPassKey());
         if(stored){
-          const entered = prompt('Ye tab password protected hai. Password daalo:');
-          if(entered === null){
-            // user ne cancel kiya — tab change mat karo
+          askPassword('Ye tab password protected hai:', stored, function(){
+            protectedUnlocked = true;
+            performSwitchTab(name, fromPopstate);
+          }, function(){
+            // cancel — tab change mat karo
             if(fromPopstate){ try { history.replaceState({tab: currentTab}, '', '#tab='+currentTab); } catch(e) {} }
-            return;
-          }
-          if(entered !== stored){
-            alert('Galat password!');
-            if(fromPopstate){ try { history.replaceState({tab: currentTab}, '', '#tab='+currentTab); } catch(e) {} }
-            return;
-          }
-          protectedUnlocked = true;
+          });
+          return;
         }
       }
 
+      performSwitchTab(name, fromPopstate);
+    }
+
+    function performSwitchTab(name, fromPopstate){
       // Always sync Attendance form → data before leaving / opening other tabs
       try { if(document.getElementById('code_0') && !isMonthLocked(currentYear, currentMonth)) savePeriod(); } catch(e) {}
 
@@ -735,17 +777,24 @@
       if(handled) e.preventDefault();
     });
 
-    // Computer: mouse wheel se table ko side-scroll karo (dono direction — aage/peeche)
+    // Computer: mouse wheel se side-scroll karo (dono direction — aage/peeche), sabhi tabs ke wide tables me
     (function(){
-      const wrap = document.querySelector('.table-wrap');
-      if(!wrap) return;
-      wrap.addEventListener('wheel', function(e){
-        if(wrap.scrollWidth <= wrap.clientWidth) return; // scroll karne ko kuch nahi hai
-        if(Math.abs(e.deltaY) >= Math.abs(e.deltaX)){
-          wrap.scrollLeft += e.deltaY;
-          e.preventDefault();
-        }
-      }, { passive: false });
+      function attachWheelScroll(el){
+        if(!el || el.dataset.wheelScrollAttached) return;
+        el.dataset.wheelScrollAttached = '1';
+        el.addEventListener('wheel', function(e){
+          if(el.scrollWidth <= el.clientWidth) return; // scroll karne ko kuch nahi hai
+          if(Math.abs(e.deltaY) >= Math.abs(e.deltaX)){
+            el.scrollLeft += e.deltaY;
+            e.preventDefault();
+          }
+        }, { passive: false });
+      }
+      document.querySelectorAll('.table-wrap, .panel-body').forEach(attachWheelScroll);
+      // Naye render hone wale panels (Year Summary / Grand Total / Rates) ke liye bhi lagate raho
+      window.attachWheelScrollAll = function(){
+        document.querySelectorAll('.table-wrap, .panel-body').forEach(attachWheelScroll);
+      };
     })();
 
     // Swipe left/right to change tabs (mobile)
@@ -1110,7 +1159,7 @@
 
 
     const SUMMARY_COLS = ['h','l','a','pp','p','sal'];
-    const FROZEN_COLS_WIDTH = 158; // Code(48px) + Emp Name(110px) — ye 2 columns hamesha freeze rehte hain
+    const FROZEN_COLS_WIDTH = 223; // Code(48px) + Emp Name(110px) + Desig.(65px) — ye 3 columns hamesha freeze rehte hain
 
     function scrollCellIntoView(el){
       const wrap = document.querySelector('.table-wrap');
@@ -1277,6 +1326,14 @@
     }
 
     function saveRates(){
+      const stored = localStorage.getItem(passKey());
+      if(stored){
+        askPassword('Rates Save karne ke liye password:', stored, function(){ saveRates_do(); });
+      } else {
+        saveRates_do();
+      }
+    }
+    function saveRates_do(){
       const y = parseInt(document.getElementById('rateYear').value);
       const m = parseInt(document.getElementById('rateMonth').value);
       if(isMonthLocked(y, m)){
@@ -1294,6 +1351,14 @@
     }
 
     function saveRatesFullYear(){
+      const stored = localStorage.getItem(passKey());
+      if(stored){
+        askPassword('Full Year Save karne ke liye password:', stored, function(){ saveRatesFullYear_do(); });
+      } else {
+        saveRatesFullYear_do();
+      }
+    }
+    function saveRatesFullYear_do(){
       const y = parseInt(document.getElementById('rateYear').value);
       const arr = readRatesFromForm();
       // if any month locked, still allow full year only after confirm? block if current month locked for form read
@@ -1310,6 +1375,14 @@
     }
 
     function saveRatesRange(){
+      const stored = localStorage.getItem(passKey());
+      if(stored){
+        askPassword('Range Save karne ke liye password:', stored, function(){ saveRatesRange_do(); });
+      } else {
+        saveRatesRange_do();
+      }
+    }
+    function saveRatesRange_do(){
       const y = parseInt(document.getElementById('rateYear').value);
       const fromM = parseInt(document.getElementById('rateMonth').value);
       const toM = parseInt(document.getElementById('rateToMonth').value);
@@ -1360,17 +1433,13 @@
         showStatus('Pehle Settings me password set karo', true);
         return;
       }
-      const entered = prompt('Unlock ke liye password likho:');
-      if(entered === null) return;
-      if(entered !== stored){
-        showStatus('Galat password!', true);
-        return;
-      }
-      setMonthLocked(y, m, false);
-      applyRatesLockState();
-      // also refresh attendance lock badge if same period
-      try { applyLockState(); } catch(e) {}
-      showStatus('Unlocked: '+MONTHS[m]+' '+y);
+      askPassword('Unlock ke liye password:', stored, function(){
+        setMonthLocked(y, m, false);
+        applyRatesLockState();
+        // also refresh attendance lock badge if same period
+        try { applyLockState(); } catch(e) {}
+        showStatus('Unlocked: '+MONTHS[m]+' '+y);
+      });
     }
 
     // ----- Year Summary: employee-wise month H/L/A -----
@@ -1959,6 +2028,7 @@
     window.addEventListener('beforeunload', () => { try{ if(!isMonthLocked(currentYear, currentMonth)) savePeriod(); }catch(e){} });
     document.getElementById('exportModal').addEventListener('click', function(e){ if(e.target === this) closeExportModal(); });
     document.getElementById('notesModal').addEventListener('click', function(e){ if(e.target === this) closeNotesModal(); });
+    document.getElementById('passwordPromptModal').addEventListener('click', function(e){ if(e.target === this) cancelPasswordPrompt(); });
   </script>
 
   <script>
