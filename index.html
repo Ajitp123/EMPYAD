@@ -280,6 +280,9 @@
       <div class="settings-box">
         <h3>Security Password</h3>
         <p>Clear Month ke liye password chahiye. Pehli baar set karo.</p>
+        <div class="row" id="currentPassRow" style="display:none;">
+          <input type="password" id="currentPass" placeholder="Current password (badalne ke liye zaroori)" style="flex:1;">
+        </div>
         <div class="row">
           <input type="password" id="newPass" placeholder="New password" style="flex:1;">
           <input type="password" id="confirmPass" placeholder="Confirm" style="flex:1;">
@@ -315,6 +318,9 @@
         <h3>🔒 Salary Rates / Backup / Settings — Tab Password</h3>
         <p>Ye password sirf <b>Salary Rates</b>, <b>Backup</b> aur <b>Settings</b> — in 3 tabs me jaane ke liye chahiye. Ye "Clear Month" wale password se bilkul alag hai.</p>
         <p id="tabsPassBadge" style="font-weight:700;"></p>
+        <div class="row" id="currentTabsPassRow" style="display:none;">
+          <input type="password" id="currentTabsPass" placeholder="Current password (badalne ke liye zaroori)" style="flex:1;">
+        </div>
         <div class="row">
           <input type="password" id="newTabsPass" placeholder="New tab password" style="flex:1;">
           <input type="password" id="confirmTabsPass" placeholder="Confirm" style="flex:1;">
@@ -661,7 +667,7 @@
         renderYearSummary();
       }
       if(name === 'totals'){ refreshTotalsEmpSelect(); renderGrandTotal(); }
-      if(name === 'settings') fillClearSelectors();
+      if(name === 'settings'){ fillClearSelectors(); refreshClearPassBadge(); }
       if(name === 'backup') {
         const bs = document.getElementById('backupStatus');
         if(bs) bs.textContent = '';
@@ -1583,26 +1589,60 @@
     }
 
     function setPassword(){
+      const existing = localStorage.getItem(passKey());
       const p1 = document.getElementById('newPass').value;
       const p2 = document.getElementById('confirmPass').value;
+      if(existing){
+        const cur = document.getElementById('currentPass').value;
+        if(cur !== existing){
+          const st = document.getElementById('passStatus');
+          st.textContent = 'Current password galat hai — pehle sahi current password daalo.';
+          st.style.color = '#c53030';
+          showStatus('Galat current password!', true);
+          return;
+        }
+      }
       if(!p1 || p1.length < 4){ showStatus('Password kam se kam 4 characters ka ho', true); return; }
       if(p1 !== p2){ showStatus('Password match nahi hua', true); return; }
       localStorage.setItem(passKey(), p1);
+      document.getElementById('currentPass').value = '';
       document.getElementById('newPass').value = '';
       document.getElementById('confirmPass').value = '';
-      document.getElementById('passStatus').textContent = 'Password set / updated successfully.';
+      const st = document.getElementById('passStatus');
+      st.textContent = 'Password set / updated successfully.';
+      st.style.color = '#276749';
+      refreshClearPassBadge();
       showStatus('Password saved!');
     }
 
+    function refreshClearPassBadge(){
+      const row = document.getElementById('currentPassRow');
+      if(row) row.style.display = localStorage.getItem(passKey()) ? 'flex' : 'none';
+    }
+
     function setTabsPassword(){
+      const existing = localStorage.getItem(tabsPassKey());
       const p1 = document.getElementById('newTabsPass').value;
       const p2 = document.getElementById('confirmTabsPass').value;
+      if(existing){
+        const cur = document.getElementById('currentTabsPass').value;
+        if(cur !== existing){
+          const st = document.getElementById('tabsPassStatus');
+          st.textContent = 'Current password galat hai — pehle sahi current password daalo.';
+          st.style.color = '#c53030';
+          showStatus('Galat current password!', true);
+          return;
+        }
+      }
       if(!p1 || p1.length < 4){ showStatus('Password kam se kam 4 characters ka ho', true); return; }
       if(p1 !== p2){ showStatus('Password match nahi hua', true); return; }
       localStorage.setItem(tabsPassKey(), p1);
+      document.getElementById('currentTabsPass').value = '';
       document.getElementById('newTabsPass').value = '';
       document.getElementById('confirmTabsPass').value = '';
-      document.getElementById('tabsPassStatus').textContent = 'Tab password set / updated successfully.';
+      const st = document.getElementById('tabsPassStatus');
+      st.textContent = 'Tab password set / updated successfully.';
+      st.style.color = '#276749';
       refreshTabsPassBadge();
       showStatus('Tab password saved!');
     }
@@ -1613,6 +1653,8 @@
       const stored = localStorage.getItem(tabsPassKey());
       badge.textContent = stored ? '✅ Password set — Salary Rates/Backup/Settings LOCKED hain.' : '⚠️ Abhi password set nahi hai — koi bhi in tabs me ja sakta hai.';
       badge.style.color = stored ? '#276749' : '#c53030';
+      const row = document.getElementById('currentTabsPassRow');
+      if(row) row.style.display = stored ? 'flex' : 'none';
     }
 
     function clearMonthSecure(){
