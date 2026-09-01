@@ -1104,6 +1104,27 @@
 
 
     const SUMMARY_COLS = ['h','l','a','pp','p','sal'];
+    const FROZEN_COLS_WIDTH = 158; // Code(48px) + Emp Name(110px) — ye 2 columns hamesha freeze rehte hain
+
+    function scrollCellIntoView(el){
+      const wrap = document.querySelector('.table-wrap');
+      if(!wrap || !el) return;
+      const wrapRect = wrap.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      const elLeftInScroll = elRect.left - wrapRect.left + wrap.scrollLeft;
+      const elRightInScroll = elLeftInScroll + elRect.width;
+      const viewLeftBoundary = wrap.scrollLeft + FROZEN_COLS_WIDTH; // frozen columns ke peeche cell chhupna nahi chahiye
+      const viewRightBoundary = wrap.scrollLeft + wrap.clientWidth;
+      if(elLeftInScroll < viewLeftBoundary){
+        wrap.scrollLeft += (elLeftInScroll - viewLeftBoundary);
+      } else if(elRightInScroll > viewRightBoundary){
+        wrap.scrollLeft += (elRightInScroll - viewRightBoundary);
+      }
+      // Vertical: agar row screen ke bahar hai to page ko thoda scroll kar do
+      const r2 = el.getBoundingClientRect();
+      if(r2.top < 80) window.scrollBy({ top: r2.top - 100 });
+      else if(r2.bottom > window.innerHeight - 20) window.scrollBy({ top: r2.bottom - window.innerHeight + 20 });
+    }
 
     function attCellKeyNav(ev, empIdx, day){
       if(ev.ctrlKey || ev.altKey || ev.metaKey) return; // Ctrl+Arrow tab switch ke liye chhod do
@@ -1122,7 +1143,7 @@
       if(target){
         target.focus();
         if(target.select) target.select();
-        target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        scrollCellIntoView(target);
       }
     }
 
@@ -1142,7 +1163,7 @@
       if(target){
         target.focus();
         if(target.select) target.select();
-        target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        scrollCellIntoView(target);
       }
     }
 
