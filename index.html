@@ -265,14 +265,25 @@
         </div>
         <button class="btn btn-primary" onclick="fixOldPDBEntries()" style="margin-top:10px;">Fix Now</button>
         <p id="fixPdbStatus" style="margin-top:12px;font-size:0.85rem;color:#276749;"></p>
-        <h3 style="margin-top:28px;">Fix Employee Names</h3>
-        <p class="hint" style="margin:0 0 12px 0;">Selected years ke saare months me employee ke naam/code current 5 employees (AJEET PARMAR, HEMANSHU TAILOR, MEHUL PATEL, RAKESH RAJPUT, RAVI PATEL) se replace ho jayenge. Attendance data touch nahi hoga.</p>
+        <h3 style="margin-top:28px;">Employee Name Change (Date Range)</h3>
+        <p class="hint" style="margin:0 0 12px 0;">Kisi bhi employee slot ka naam/code sirf ek chuni hui date range me badlo — attendance data touch nahi hoga, aur calculation kabhi merge nahi hoga (purana naam aur naya naam hamesha alag-alag count honge).</p>
         <div class="row">
-          <label>From Year:</label><select id="fixNameYearFrom"></select>
-          <label>To Year:</label><select id="fixNameYearTo"></select>
+          <label>Slot:</label><select id="renameEmpSlot"></select>
         </div>
-        <button class="btn btn-primary" onclick="fixEmployeeNames()" style="margin-top:10px;">Fix Names Now</button>
-        <p id="fixNameStatus" style="margin-top:12px;font-size:0.85rem;color:#276749;"></p>
+        <div class="row">
+          <label>From Year:</label><select id="renameYearFrom"></select>
+          <label>From Month:</label><select id="renameMonthFrom"></select>
+        </div>
+        <div class="row">
+          <label>To Year:</label><select id="renameYearTo"></select>
+          <label>To Month:</label><select id="renameMonthTo"></select>
+        </div>
+        <div class="row">
+          <label>New Code:</label><input type="text" id="renameNewCode" placeholder="e.g. 12345" style="width:100px;">
+          <label>New Name:</label><input type="text" id="renameNewName" placeholder="e.g. SURESH KUMAR" style="flex:1;">
+        </div>
+        <button class="btn btn-primary" onclick="renameEmployeeInRange()" style="margin-top:10px;">Apply Name Change</button>
+        <p id="renameEmpStatus" style="margin-top:12px;font-size:0.85rem;color:#276749;"></p>
       </div>
     </div>
 
@@ -477,33 +488,69 @@
       statusEl.style.color = '#276749';
     }
 
-    function fixEmployeeNames(){
-      const fromY = parseInt(document.getElementById('fixNameYearFrom').value);
-      const toY = parseInt(document.getElementById('fixNameYearTo').value);
-      const lo = Math.min(fromY, toY), hi = Math.max(fromY, toY);
-      if(!confirm('Years ' + lo + '–' + hi + ' ke saare months me employee naam/code current 5 employees se replace ho jayenge. Attendance data safe rahega. Continue?')) return;
-      let changedMonths = 0;
-      for(let y=lo; y<=hi; y++){
-        for(let m=0; m<12; m++){
-          const key = storageKey(y, m);
-          const raw = localStorage.getItem(key);
-          if(!raw) continue;
-          let period;
-          try{ period = JSON.parse(raw); }catch(e){ continue; }
-          if(!period) continue;
-          period.employees = JSON.parse(JSON.stringify(defaultEmployees));
-          localStorage.setItem(key, JSON.stringify(period));
-          changedMonths++;
-        }
+    function refreshRenameEmpSlotOptions(){
+      const sel = document.getElementById('renameEmpSlot');
+      if(!sel) return;
+      const prevVal = sel.value;
+      sel.innerHTML = '';
+      for(let i=0; i<MAX_EMP; i++){
+        const nameEl = document.getElementById('name_'+i);
+        const liveName = nameEl ? nameEl.value.trim() : '';
+        const label = 'Slot ' + (i+1) + (liveName ? (' — currently: ' + liveName) : ' — (blank)');
+        const o = document.createElement('option');
+        o.value = i;
+        o.textContent = label;
+        sel.appendChild(o);
       }
-      if(lo <= currentYear && currentYear <= hi){
+      if(prevVal !== '' && prevVal !== null && Number(prevVal) < MAX_EMP) sel.value = prevVal;
+    }
+
+    function renameEmployeeInRange(){
+      const slotIdx = parseInt(document.getElementById('renameEmpSlot').value);
+      const fromY = parseInt(document.getElementById('renameYearFrom').value);
+      const fromM = parseInt(document.getElementById('renameMonthFrom').value);
+      const toY = parseInt(document.getElementById('renameYearTo').value);
+      const toM = parseInt(document.getElementById('renameMonthTo').value);
+      const newName = document.getElementById('renameNewName').value.trim();
+      const newCode = document.getElementById('renameNewCode').value.trim();
+      const statusEl = document.getElementById('renameEmpStatus');
+
+      if(!newName){
+        statusEl.textContent = 'Naya naam likhna zaroori hai.';
+        statusEl.style.color = '#c53030';
+        return;
+      }
+      let startAbs = fromY*12 + fromM;
+      let endAbs = toY*12 + toM;
+      if(startAbs > endAbs){ const t = startAbs; startAbs = endAbs; endAbs = t; }
+      const fromLabel = MONTHS[startAbs%12] + ' ' + Math.floor(startAbs/12);
+      const toLabel = MONTHS[endAbs%12] + ' ' + Math.floor(endAbs/12);
+
+      if(!confirm('Slot ' + (slotIdx+1) + ' ka naam "' + newName + '" set ho jayega — ' + fromLabel + ' se ' + toLabel + ' tak. Attendance data safe rahega, sirf naam/code change hoga. Continue?')) return;
+
+      let changedMonths = 0;
+      for(let abs = startAbs; abs <= endAbs; abs++){
+        const y = Math.floor(abs/12);
+        const m = abs % 12;
+        const period = loadPeriod(y, m); // agar month ka data nahi hai to default se bana dega
+        if(!period.employees || period.employees.length !== MAX_EMP){
+          period.employees = JSON.parse(JSON.stringify(defaultEmployees));
+        }
+        const oldSlot = period.employees[slotIdx] || {};
+        period.employees[slotIdx] = {
+          code: newCode,
+          name: newName,
+          desig: oldSlot.desig || 'COM.OP.'
+        };
+        localStorage.setItem(storageKey(y, m), JSON.stringify(period));
+        changedMonths++;
+      }
+
+      if(startAbs <= (currentYear*12+currentMonth) && (currentYear*12+currentMonth) <= endAbs){
         data = loadPeriod(currentYear, currentMonth);
         renderTable();
       }
-      const statusEl = document.getElementById('fixNameStatus');
-      statusEl.textContent = changedMonths > 0
-        ? changedMonths + ' month(s) ke employee names update ho gaye (' + lo + '–' + hi + ').'
-        : 'Is range me koi saved data nahi mila.';
+      statusEl.textContent = changedMonths + ' month(s) me Slot ' + (slotIdx+1) + ' ab "' + newName + '" ho gaya (' + fromLabel + ' – ' + toLabel + ').';
       statusEl.style.color = '#276749';
     }
 
@@ -855,14 +902,14 @@
 
     function initSelectors(){
       const now = new Date();
-      ['yearSelect','reportYear','exportYear','clearYear','rateYear','fixYearFrom','fixYearTo','fixNameYearFrom','fixNameYearTo','totalsFromYear','totalsToYear'].forEach(id=>{
+      ['yearSelect','reportYear','exportYear','clearYear','rateYear','fixYearFrom','fixYearTo','renameYearFrom','renameYearTo','totalsFromYear','totalsToYear'].forEach(id=>{
         const sel = document.getElementById(id); if(!sel) return;
         sel.innerHTML = '';
         for(let y=2023; y<=now.getFullYear()+5; y++){
           const o = document.createElement('option'); o.value=y; o.textContent=y; sel.appendChild(o);
         }
       });
-      ['monthSelect','exportMonth','clearMonth','rateMonth','rateToMonth','totalsFromMonth','totalsToMonth'].forEach(id=>{
+      ['monthSelect','exportMonth','clearMonth','rateMonth','rateToMonth','totalsFromMonth','totalsToMonth','renameMonthFrom','renameMonthTo'].forEach(id=>{
         const sel = document.getElementById(id); if(!sel) return;
         sel.innerHTML = '';
         MONTHS.forEach((m,i)=>{ const o=document.createElement('option'); o.value=i; o.textContent=m; sel.appendChild(o); });
@@ -877,8 +924,10 @@
       document.getElementById('rateToMonth').value = 11;
       document.getElementById('fixYearFrom').value = 2023;
       document.getElementById('fixYearTo').value = currentYear;
-      document.getElementById('fixNameYearFrom').value = 2023;
-      document.getElementById('fixNameYearTo').value = currentYear;
+      document.getElementById('renameYearFrom').value = currentYear;
+      document.getElementById('renameMonthFrom').value = currentMonth;
+      document.getElementById('renameYearTo').value = currentYear;
+      document.getElementById('renameMonthTo').value = 11;
       document.getElementById('totalsFromYear').value = 2023;
       document.getElementById('totalsFromMonth').value = 0;
       document.getElementById('totalsToYear').value = currentYear;
@@ -971,6 +1020,37 @@
       refreshEmployeeSelect('bulkEmpSelect', false);
       refreshEmployeeSelect('clearEmpSelect', true);
       refreshTotalsEmpSelect();
+      refreshRenameEmpSlotOptions();
+    }
+
+    function collectAllKnownEmployees(){
+      // Sirf current month nahi — jitne bhi saved periods hain unme se ab tak jitne bhi
+      // employees kabhi bhi kisi slot me the (chahe ab chale gaye hon), sabko collect karo.
+      const seen = {};
+      const list = [];
+      for(let i=0; i<localStorage.length; i++){
+        const key = localStorage.key(i);
+        if(!key || key.indexOf('att_') !== 0) continue;
+        const m = key.match(/^att_(\d+)_(\d+)$/);
+        if(!m) continue;
+        let period;
+        try{ period = JSON.parse(localStorage.getItem(key)); }catch(e){ continue; }
+        if(!period || !period.employees) continue;
+        period.employees.forEach(e=>{
+          const nm = (e && e.name) ? String(e.name).trim() : '';
+          if(!nm) return;
+          const upper = nm.toUpperCase();
+          if(!seen[upper]){ seen[upper] = true; list.push({ name: nm, code: (e.code||'').trim() }); }
+        });
+      }
+      getMasterEmployees().forEach(e=>{
+        const nm = (e.name || '').trim();
+        if(!nm) return;
+        const upper = nm.toUpperCase();
+        if(!seen[upper]){ seen[upper] = true; list.push({ name: nm, code: (e.code||'').trim() }); }
+      });
+      list.sort(function(a,b){ return a.name.localeCompare(b.name); });
+      return list;
     }
 
     function refreshTotalsEmpSelect(){
@@ -982,12 +1062,10 @@
       oAll.value = 'all';
       oAll.textContent = 'All Employees';
       sel.appendChild(oAll);
-      getMasterEmployees().forEach(e=>{
-        const nm = (e.name || '').trim();
-        if(!nm) return;
+      collectAllKnownEmployees().forEach(e=>{
         const o = document.createElement('option');
-        o.value = nm;
-        o.textContent = nm;
+        o.value = e.name;
+        o.textContent = e.name;
         sel.appendChild(o);
       });
       const opts = Array.from(sel.options).map(o=>o.value);
@@ -1464,36 +1542,61 @@
       let empMonthHtml = '';
       const empYearTotals = [];
 
-      // Only employees that have a name on Attendance tab
-      const masterEmps = getMasterEmployees();
+      // Poore saal me jitne bhi alag-alag naam kisi bhi month me kisi bhi slot me aaye hon, sabko collect karo.
+      // Naam-based matching isliye taaki agar beech mahine me employee badal jaye (jaise slot me AJEET → SHIFT),
+      // to dono ka calculation kabhi merge na ho — har naam ka apna alag total bane.
+      const nameOrder = []; // [{key, code, name, firstMonth}]
+      const nameSeen = {};
+      for(let m=0; m<12; m++){
+        const period = loadPeriod(y, m);
+        const emps = (period.employees && period.employees.length === MAX_EMP) ? period.employees : defaultEmployees;
+        emps.forEach(e=>{
+          const nm = (e && e.name) ? String(e.name).trim() : '';
+          if(!nm) return;
+          const key = nm.toUpperCase();
+          if(!nameSeen[key]){
+            nameSeen[key] = true;
+            nameOrder.push({ key: key, code: (e.code||'').trim(), name: nm, firstMonth: m });
+          }
+        });
+      }
+      nameOrder.sort((a,b) => a.firstMonth - b.firstMonth);
 
-      for(let i=0; i<MAX_EMP; i++){
-        const empName = (masterEmps[i] && masterEmps[i].name) ? String(masterEmps[i].name).trim() : '';
-        const empCode = (masterEmps[i] && masterEmps[i].code) ? String(masterEmps[i].code).trim() : '';
-        if(!empName) continue; // blank employee → skip completely
-
+      nameOrder.forEach(entry=>{
         let rows = '';
         let eh=0, el=0, ea=0, epp=0, esal=0;
+        let anyMonth = false;
 
         for(let m=0; m<12; m++){
           const period = loadPeriod(y, m);
+          const periodEmployees = (period.employees && period.employees.length === MAX_EMP) ? period.employees : defaultEmployees;
+          let idx = -1;
+          for(let k=0; k<periodEmployees.length; k++){
+            const nm = (periodEmployees[k] && periodEmployees[k].name) ? String(periodEmployees[k].name).trim().toUpperCase() : '';
+            if(nm === entry.key){ idx = k; break; }
+          }
+          if(idx === -1) continue; // is month me ye employee tha hi nahi — row skip
+
           const days = getDaysInMonth(y, m);
           const rates = loadRatesFor(y, m);
-          const att = (period.attendance && period.attendance[i]) ? period.attendance[i] : {};
+          const att = (period.attendance && period.attendance[idx]) ? period.attendance[idx] : {};
           const sum = calcSummary(att, days);
-          const sal = calcSalary(sum.totalHours, rates[i]);
+          const sal = calcSalary(sum.totalHours, rates[idx]);
           rows += '<tr><td>'+MONTHS[m]+'</td><td>'+sum.h+'</td><td>'+sum.l+'</td><td>'+sum.a+'</td><td>'+sum.pp+'</td><td>'+sum.pHours+'</td><td>'+sal.toLocaleString('en-IN')+'</td></tr>';
           eh += sum.h; el += sum.l; ea += sum.a; epp += sum.pp; esal += sal;
+          anyMonth = true;
         }
-        empYearTotals.push({ h:eh, l:el, a:ea, pp:epp, salary:esal, name:empName, code:empCode });
+        if(!anyMonth) return;
+
+        empYearTotals.push({ h:eh, l:el, a:ea, pp:epp, salary:esal, name:entry.name, code:entry.code });
 
         empMonthHtml += '<table class="summary"><thead>';
-        empMonthHtml += '<tr class="emp-header"><td colspan="7">'+esc(empCode)+(empCode && empName ? ' — ' : '')+esc(empName)+'</td></tr>';
+        empMonthHtml += '<tr class="emp-header"><td colspan="7">'+esc(entry.code)+(entry.code && entry.name ? ' — ' : '')+esc(entry.name)+'</td></tr>';
         empMonthHtml += '<tr><th>Month</th><th>H</th><th>L</th><th>A</th><th>PP</th><th>P</th><th>Salary</th></tr></thead><tbody>';
         empMonthHtml += rows;
         empMonthHtml += '<tr class="total-row"><td>TOTAL</td><td>'+eh+'</td><td>'+el+'</td><td>'+ea+'</td><td>'+epp+'</td><td>—</td><td>'+esal.toLocaleString('en-IN')+'</td></tr>';
         empMonthHtml += '</tbody></table>';
-      }
+      });
 
       if(!empMonthHtml){
         empMonthHtml = '<p class="hint">Koi employee name nahi hai. Pehle Attendance tab me name likho + Save.</p>';
@@ -1531,7 +1634,7 @@
       let endAbs = ty*12 + tm;
       if(startAbs > endAbs){ const tmp = startAbs; startAbs = endAbs; endAbs = tmp; }
 
-      const masterEmps = getMasterEmployees().filter(e => e.name && e.name.trim());
+      const masterEmps = collectAllKnownEmployees();
       const targets = (empFilter === 'all') ? masterEmps : masterEmps.filter(e => e.name.trim().toUpperCase() === empFilter.toUpperCase());
 
       const totals = []; // { code, name, a, l, salary }
