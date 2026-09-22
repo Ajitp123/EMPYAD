@@ -28,8 +28,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #e8eef5; color: #222; padding: 12px; min-height: 100vh; }
-    .container { max-width: 1150px; margin: 0 auto; background: #fff; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.12); overflow: hidden; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #e8eef5; color: #222; padding: 6px; min-height: 100vh; }
+    .container { max-width: 1900px; margin: 0 auto; background: #fff; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.12); overflow: hidden; }
     header { background: linear-gradient(135deg, #1a365d 0%, #2c5282 100%); color: #fff; padding: 14px 20px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
     header h1 { font-size: 1.25rem; font-weight: 600; }
     header .sub { font-size: 0.8rem; opacity: 0.9; }
@@ -151,6 +151,7 @@
         <button class="btn btn-primary" onclick="saveData()">Save (Alt+S)</button>
         <button class="btn btn-outline" onclick="openNotesModal()">📝 Notes</button>
         <button class="btn btn-outline" onclick="autoFillTodayPresent(true)">✅ Khaali Din P Bharo</button>
+        <button class="btn btn-outline" id="btnFullscreen" onclick="toggleFullscreen()">⛶ Full Screen</button>
         <button class="btn btn-outline" id="btnUnlock" style="display:none;" onclick="unlockMonth()">Unlock (Password) (Alt+U)</button>
         <span id="lockBadge" style="display:none;margin-left:6px;padding:4px 10px;background:#c53030;color:#fff;border-radius:6px;font-size:0.8rem;font-weight:700;">LOCKED</span>
       </div>
@@ -1232,6 +1233,30 @@
       st.textContent = MONTHS[currentMonth] + ' ' + currentYear + ' — ' + empName + ' ki ' + fromD + ' se ' + toD + ' tarikh (' + filled + ' din) "' + val + '" se bhar di gayi aur save ho gayi.';
       st.style.color = '#276749';
     }
+
+    function toggleFullscreen(){
+      const btn = document.getElementById('btnFullscreen');
+      if(!document.fullscreenElement){
+        const el = document.documentElement;
+        const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+        if(req){
+          req.call(el).then(function(){
+            if(btn) btn.textContent = '⛶ Exit Full Screen';
+          }).catch(function(){
+            showStatus('Full screen support nahi mila is browser me.', true);
+          });
+        } else {
+          showStatus('Full screen support nahi mila is browser me.', true);
+        }
+      } else {
+        const exit = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+        if(exit) exit.call(document);
+      }
+    }
+    document.addEventListener('fullscreenchange', function(){
+      const btn = document.getElementById('btnFullscreen');
+      if(btn) btn.textContent = document.fullscreenElement ? '⛶ Exit Full Screen' : '⛶ Full Screen';
+    });
 
     function autoFillTodayPresent(manualClick){
       const today = new Date();
