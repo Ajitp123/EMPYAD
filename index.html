@@ -1698,10 +1698,11 @@
       const masterEmps = collectAllKnownEmployees();
       const targets = (empFilter === 'all') ? masterEmps : masterEmps.filter(e => e.name.trim().toUpperCase() === empFilter.toUpperCase());
 
-      const totals = []; // { code, name, a, l, salary }
+      const totals = []; // { code, name, a, l, salary, monthly:[{y,m,a,l,salary}] }
       targets.forEach(target=>{
         const targetNameUpper = target.name.trim().toUpperCase();
         let ea = 0, el = 0, esal = 0;
+        const monthly = [];
         for(let abs = startAbs; abs <= endAbs; abs++){
           const y = Math.floor(abs/12);
           const m = abs % 12;
@@ -1721,8 +1722,9 @@
           const sum = calcSummary(att, days);
           const sal = calcSalary(sum.totalHours, rates[idx]);
           ea += sum.a; el += sum.l; esal += sal;
+          monthly.push({ y: y, m: m, a: sum.a, l: sum.l, salary: sal });
         }
-        totals.push({ code: target.code, name: target.name, a: ea, l: el, salary: esal });
+        totals.push({ code: target.code, name: target.name, a: ea, l: el, salary: esal, monthly: monthly });
       });
 
       const fromLabel = MONTHS[startAbs % 12] + ' ' + Math.floor(startAbs/12);
@@ -1745,6 +1747,24 @@
         html += '<tr class="total-row"><td colspan="4">GRAND TOTAL</td><td>'+grandAL+'</td><td>'+grand.toLocaleString('en-IN')+'</td></tr>';
       }
       html += '</tbody></table>';
+
+      // Month-wise breakdown — har employee ka month by month A, L, Salary
+      if(totals.length > 0){
+        totals.forEach(e=>{
+          html += '<h3 style="margin-top:22px;">'+esc(e.name)+' — Month-wise Details (A / L)</h3>';
+          html += '<table class="summary"><thead><tr><th>Month</th><th>A</th><th>L</th></tr></thead><tbody>';
+          const nonZeroMonths = e.monthly.filter(function(mm){ return mm.a > 0 || mm.l > 0; });
+          if(nonZeroMonths.length === 0){
+            html += '<tr><td colspan="3">Is range me koi A/L nahi mila.</td></tr>';
+          } else {
+            nonZeroMonths.forEach(mm=>{
+              html += '<tr><td>'+MONTHS[mm.m]+' '+mm.y+'</td><td>'+mm.a+'</td><td>'+mm.l+'</td></tr>';
+            });
+          }
+          html += '</tbody></table>';
+        });
+      }
+
       document.getElementById('grandTotalBox').innerHTML = html;
     }
 
