@@ -237,6 +237,12 @@
     <!-- TAB: Grand Total (custom range) -->
     <div id="tab-totals" class="tab-panel">
       <div class="controls">
+        <label>Financial Year:</label>
+        <select id="totalsFYSelect" onchange="applyFYToGrandTotal()">
+          <option value="">— Manual (neeche se select karo) —</option>
+        </select>
+      </div>
+      <div class="controls" style="margin-top:-8px;">
         <label>From (Alt+F):</label>
         <select id="totalsFromYear"></select>
         <select id="totalsFromMonth"></select>
@@ -943,6 +949,30 @@
       document.getElementById('totalsFromMonth').value = 0;
       document.getElementById('totalsToYear').value = currentYear;
       document.getElementById('totalsToMonth').value = currentMonth;
+
+      // Financial Year dropdown (April se March tak): 2023-24 se ab tak + 2 saal aage
+      const fySel = document.getElementById('totalsFYSelect');
+      if(fySel){
+        while(fySel.options.length > 1) fySel.remove(1);
+        const fyNowStart = (currentMonth >= 3) ? currentYear : currentYear - 1; // April(3) ya usse baad ho to isi saal ka FY chal raha hai
+        for(let y=2023; y<=fyNowStart+2; y++){
+          const o = document.createElement('option');
+          o.value = y;
+          o.textContent = y + '-' + String(y+1).slice(-2);
+          fySel.appendChild(o);
+        }
+      }
+    }
+
+    function applyFYToGrandTotal(){
+      const fySel = document.getElementById('totalsFYSelect');
+      const y = parseInt(fySel.value);
+      if(!y) return; // "Manual" chuna hai to kuch mat karo
+      document.getElementById('totalsFromYear').value = y;
+      document.getElementById('totalsFromMonth').value = 3;  // April
+      document.getElementById('totalsToYear').value = y + 1;
+      document.getElementById('totalsToMonth').value = 2;    // March
+      renderGrandTotal();
     }
 
     function changePeriod(){
