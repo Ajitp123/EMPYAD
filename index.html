@@ -672,6 +672,25 @@
       if(bulkVal) bulkVal.disabled = locked;
     }
 
+    function focusFirstEmptyCell(){
+      const days = getDaysInMonth(currentYear, currentMonth);
+      for(let d=1; d<=days; d++){
+        for(let i=0; i<MAX_EMP; i++){
+          const nameEl = document.getElementById('name_'+i);
+          const hasName = nameEl && nameEl.value.trim() !== '';
+          if(!hasName) continue; // khaali employee slot skip karo
+          const inp = document.getElementById('att_'+i+'_'+d);
+          if(inp && inp.value.trim() === ''){
+            inp.focus();
+            inp.select();
+            scrollCellIntoView(inp);
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+
     function unlockMonth(){
       const stored = localStorage.getItem(passKey());
       if(!stored){
@@ -682,6 +701,7 @@
         setMonthLocked(currentYear, currentMonth, false);
         applyLockState();
         showStatus('Unlocked — ab change kar sakte ho. Save ke baad phir lock ho jayega.');
+        setTimeout(function(){ focusFirstEmptyCell(); }, 50);
       });
     }
 
