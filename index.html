@@ -58,16 +58,14 @@
     table.att th { background: #2c5282; color: #fff; font-weight: 600; position: sticky; top: 0; z-index: 2; }
     table.att th.day-header { min-width: 15px; font-size: 0.56rem; }
     table.att td.name-cell { text-align: left; padding: 2px 4px; width: 88px; min-width: 88px; max-width: 88px; background: #f7fafc; font-weight: 500; font-size: 0.68rem; }
-    table.att td.code-cell { width: 38px; min-width: 38px; max-width: 38px; background: #edf2f7; font-weight: 600; font-size: 0.65rem; }
-    table.att td.desig-cell { width: 46px; min-width: 46px; max-width: 46px; background: #e2e8f0; color: #4a5568; font-weight: 600; font-size: 0.6rem; }
-    /* Code + Emp Name + Desig. — teeno hamesha freeze rehenge, side scroll me kabhi hide nahi honge */
-    table.att td.desig-cell, table.att thead tr:first-child th:nth-child(3) { position: sticky; left: 126px; z-index: 1; box-shadow: 2px 0 4px rgba(0,0,0,0.15); }
+    table.att td.code-cell { width: 44px; min-width: 44px; max-width: 44px; background: #edf2f7; font-weight: 600; font-size: 0.72rem; }
+    table.att td.desig-cell, table.att thead tr:first-child th:nth-child(3) { display: none; }
     table.att thead tr:first-child th:nth-child(3) { z-index: 3; }
     /* Code + Emp Name hamesha dikhte rahein, chahe jitna bhi side scroll karo — jaisa Excel me column freeze hota hai */
     table.att td.code-cell, table.att thead tr:first-child th:nth-child(1) { position: sticky; left: 0; z-index: 1; }
-    table.att td.name-cell, table.att thead tr:first-child th:nth-child(2) { position: sticky; left: 38px; z-index: 1; }
+    table.att td.name-cell, table.att thead tr:first-child th:nth-child(2) { position: sticky; left: 44px; z-index: 1; }
     table.att thead tr:first-child th:nth-child(1), table.att thead tr:first-child th:nth-child(2) { z-index: 3; }
-    table.att input.att-input { width: 15px; height: 16px; text-align: center; border: 1px solid #cbd5e0; border-radius: 2px; font-size: 0.58rem; font-weight: 600; padding: 0; }
+    table.att input.att-input { width: 18px; height: 19px; text-align: center; border: 1px solid #cbd5e0; border-radius: 2px; font-size: 0.7rem; font-weight: 700; padding: 0; }
     table.att input.att-input:focus { border-color: #3182ce; outline: none; background: #ebf8ff; }
     table.att input.name-input, table.att input.code-input { width: 100%; border: 1px solid transparent; background: transparent; font-size: 0.75rem; font-weight: 500; padding: 1px 3px; }
     table.att input.name-input:focus, table.att input.code-input:focus { border-color: #3182ce; background: #fff; outline: none; }
@@ -151,7 +149,6 @@
         <button class="btn btn-primary" onclick="saveData()">Save (Alt+S)</button>
         <button class="btn btn-outline" onclick="openNotesModal()">📝 Notes</button>
         <button class="btn btn-outline" onclick="autoFillTodayPresent(true)">✅ Khaali Din P Bharo</button>
-        <button class="btn btn-outline" id="btnFullscreen" onclick="toggleFullscreen()">⛶ Full Screen</button>
         <button class="btn btn-outline" id="btnUnlock" style="display:none;" onclick="unlockMonth()">Unlock (Password) (Alt+U)</button>
         <span id="lockBadge" style="display:none;margin-left:6px;padding:4px 10px;background:#c53030;color:#fff;border-radius:6px;font-size:0.8rem;font-weight:700;">LOCKED</span>
       </div>
@@ -867,11 +864,9 @@
         if(!el || el.dataset.wheelScrollAttached) return;
         el.dataset.wheelScrollAttached = '1';
         el.addEventListener('wheel', function(e){
-          if(el.scrollWidth <= el.clientWidth) return; // scroll karne ko kuch nahi hai
-          if(Math.abs(e.deltaY) >= Math.abs(e.deltaX)){
-            el.scrollLeft += e.deltaY;
-            e.preventDefault();
-          }
+          if(el.scrollWidth <= el.clientWidth + 1) return; // scroll karne ko kuch nahi hai
+          el.scrollLeft += (e.deltaY !== 0 ? e.deltaY : e.deltaX);
+          e.preventDefault();
         }, { passive: false });
       }
       document.querySelectorAll('.table-wrap, .panel-body').forEach(attachWheelScroll);
@@ -1284,30 +1279,6 @@
       st.style.color = '#276749';
     }
 
-    function toggleFullscreen(){
-      const btn = document.getElementById('btnFullscreen');
-      if(!document.fullscreenElement){
-        const el = document.documentElement;
-        const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
-        if(req){
-          req.call(el).then(function(){
-            if(btn) btn.textContent = '⛶ Exit Full Screen';
-          }).catch(function(){
-            showStatus('Full screen support nahi mila is browser me.', true);
-          });
-        } else {
-          showStatus('Full screen support nahi mila is browser me.', true);
-        }
-      } else {
-        const exit = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
-        if(exit) exit.call(document);
-      }
-    }
-    document.addEventListener('fullscreenchange', function(){
-      const btn = document.getElementById('btnFullscreen');
-      if(btn) btn.textContent = document.fullscreenElement ? '⛶ Exit Full Screen' : '⛶ Full Screen';
-    });
-
     function autoFillTodayPresent(manualClick){
       const today = new Date();
       const ty = today.getFullYear(), tm = today.getMonth(), td = today.getDate();
@@ -1348,7 +1319,7 @@
 
 
     const SUMMARY_COLS = ['h','l','a','pp','p','sal'];
-    const FROZEN_COLS_WIDTH = 223; // Code(48px) + Emp Name(110px) + Desig.(65px) — ye 3 columns hamesha freeze rehte hain
+    const FROZEN_COLS_WIDTH = 132; // Code(44px) + Emp Name(88px) — Desig. ab hidden hai
 
     function scrollCellIntoView(el){
       const wrap = document.querySelector('.table-wrap');
