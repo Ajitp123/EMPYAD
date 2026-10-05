@@ -58,7 +58,9 @@
     table.att { width: 100%; border-collapse: collapse; font-size: 0.72rem; min-width: 700px; }
     table.att th, table.att td { border: 1px solid #a0aec0; padding: 2px 1px; text-align: center; vertical-align: middle; }
     table.att th { background: #2c5282; color: #fff; font-weight: 600; position: sticky; top: 0; z-index: 2; }
-    table.att th.day-header { min-width: 15px; font-size: 0.56rem; }
+    table.att th.day-header { min-width: 18px; font-size: 0.78rem; font-weight: 700; padding: 4px 2px; }
+    table.att thead tr:first-child th.day-header { font-size: 0.8rem; }
+    table.att thead tr:nth-child(2) th.day-header { font-size: 0.72rem; }
     table.att td.name-cell { text-align: left; padding: 2px 4px; width: 88px; min-width: 88px; max-width: 88px; background: #f7fafc; font-weight: 500; font-size: 0.68rem; }
     table.att td.code-cell { width: 44px; min-width: 44px; max-width: 44px; background: #edf2f7; font-weight: 600; font-size: 0.72rem; }
     table.att td.desig-cell, table.att thead tr:first-child th:nth-child(3) { display: none; }
@@ -1411,6 +1413,31 @@
     function attCellKeyNav(ev, empIdx, day){
       if(ev.ctrlKey || ev.altKey || ev.metaKey) return; // Ctrl+Arrow tab switch ke liye chhod do
       const key = ev.key;
+
+      // Backspace / Delete: clear cell, phir previous date (15→14→13…) — baar baar dabao to continuous remove
+      if(key === 'Backspace' || key === 'Delete'){
+        if(isMonthLocked(currentYear, currentMonth)) return;
+        const cur = document.getElementById('att_'+empIdx+'_'+day);
+        if(!cur || cur.readOnly) return;
+        ev.preventDefault();
+        const had = (cur.value || '').trim() !== '';
+        if(had){
+          cur.value = '';
+          try { colorizeCell(cur); } catch(e) {}
+          try { updateSummary(empIdx); } catch(e) {}
+        }
+        // Move to previous day always (so next Backspace clears 14, 13, …)
+        if(day > 1){
+          const prev = document.getElementById('att_'+empIdx+'_'+(day-1));
+          if(prev){
+            prev.focus();
+            if(prev.select) prev.select();
+            scrollCellIntoView(prev);
+          }
+        }
+        return;
+      }
+
       if(key !== 'ArrowUp' && key !== 'ArrowDown' && key !== 'ArrowLeft' && key !== 'ArrowRight') return;
       ev.preventDefault();
       const days = getDaysInMonth(currentYear, currentMonth);
@@ -1420,7 +1447,7 @@
       else if(key === 'ArrowLeft') target = document.getElementById('att_'+empIdx+'_'+(day-1));
       else if(key === 'ArrowRight'){
         if(day < days) target = document.getElementById('att_'+empIdx+'_'+(day+1));
-        else target = document.getElementById('sum_h_'+empIdx); // last date ke baad H/L/A/PP/P/Salary me chala jao
+        else target = document.getElementById('sum_h_'+empIdx);
       }
       if(target){
         target.focus();
