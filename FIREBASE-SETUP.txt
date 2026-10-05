@@ -1,0 +1,50 @@
+FIREBASE CLOUD SYNC — SETUP (FREE)
+==================================
+
+1) Browser me kholo: https://console.firebase.google.com/
+2) "Add project" → name do (jaise Attendance-COMOP) → Continue → (Analytics optional) → Create
+3) Project me: Build → Firestore Database → Create database
+   - Start in TEST MODE (dev ke liye)
+   - Location: asia-south1 (Mumbai) choose kar sakte ho
+4) Project Settings (gear) → Your apps → Web (</>) → App nickname → Register
+5) Config dikhega — ye values copy karo:
+   - apiKey
+   - authDomain
+   - projectId
+   - appId
+
+6) App me Settings tab → Firebase Cloud Sync box me paste karo
+7) Office ID: ek shared code likho, e.g.  COMOP-STAFF-2026
+   (Same Office ID sab devices pe same hona chahiye)
+8) "Save & Connect Sync" dabao
+9) Green bar: Cloud Sync On
+
+HAR DEVICE PE:
+- Same zip/app
+- Same Firebase values
+- Same Office ID
+
+PHIR:
+- Ek phone pe attendance Save
+- Doosre phone/computer pe thodi der me (ya Pull Now) data aa jayega
+
+FIRESTORE RULES (test mode expire ke baad):
+Firestore → Rules:
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /offices/{officeId}/data/{docId} {
+      allow read, write: if true;
+    }
+  }
+}
+
+NOTE: Ye rules open hain — sirf private team / hard Office ID ke sath use karo.
+Baad me Auth laga sakte ho.
+
+OFFLINE:
+- Net na ho to local pe kaam chalta hai
+- Net aate hi Firestore sync try karega
+- Pehli baar connect ke liye internet zaroori (Firebase SDK + first sync)
+

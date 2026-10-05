@@ -26,6 +26,8 @@
   </script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #e8eef5; color: #222; padding: 6px; min-height: 100vh; }
@@ -136,6 +138,11 @@
     </div>
 
     <div id="statusMsg" class="status"></div>
+    <div id="syncBar" style="display:none;padding:6px 16px;font-size:0.8rem;background:#ebf8ff;color:#2b6cb0;border-bottom:1px solid #bee3f8;">
+      <b>Cloud Sync:</b> <span id="syncStatusText">Off</span>
+      <button class="btn btn-outline" style="margin-left:10px;padding:3px 10px;font-size:0.75rem;" onclick="manualCloudPull()">Pull Now</button>
+      <button class="btn btn-outline" style="margin-left:4px;padding:3px 10px;font-size:0.75rem;" onclick="manualCloudPushAll()">Push All</button>
+    </div>
 
     <!-- TAB: Attendance -->
     <div id="tab-att" class="tab-panel active">
@@ -331,8 +338,38 @@
         <p class="hint" style="margin:6px 0 0 0;">"All Employees" select karoge to poore month ka data clear hoga, warna sirf select kiye hue employee ka.</p>
       </div>
       <div class="settings-box">
+        <h3>☁ Firebase Cloud Sync (Free)</h3>
+        <p class="hint">Sab devices pe same data chahiye to Firebase config + Office ID yahan save karo. Ek baar setup, phir online pe auto sync.</p>
+        <div class="row">
+          <label style="min-width:90px;">Office ID:</label>
+          <input type="text" id="fbOfficeId" placeholder="e.g. COMOP-STAFF" style="flex:1;">
+        </div>
+        <div class="row">
+          <label style="min-width:90px;">apiKey:</label>
+          <input type="text" id="fbApiKey" placeholder="AIza..." style="flex:1;">
+        </div>
+        <div class="row">
+          <label style="min-width:90px;">authDomain:</label>
+          <input type="text" id="fbAuthDomain" placeholder="xxx.firebaseapp.com" style="flex:1;">
+        </div>
+        <div class="row">
+          <label style="min-width:90px;">projectId:</label>
+          <input type="text" id="fbProjectId" placeholder="my-project" style="flex:1;">
+        </div>
+        <div class="row">
+          <label style="min-width:90px;">appId:</label>
+          <input type="text" id="fbAppId" placeholder="1:xxx:web:xxx" style="flex:1;">
+        </div>
+        <div class="row">
+          <button class="btn btn-success" onclick="saveFirebaseSettings()">Save & Connect Sync</button>
+          <button class="btn btn-outline" onclick="disconnectFirebase()">Disconnect</button>
+        </div>
+        <p id="fbStatus" style="font-size:0.8rem;color:#276749;margin-top:8px;"></p>
+        <p class="hint" style="margin-top:8px;">Setup guide: dekh lo <b>FIREBASE-SETUP.txt</b> zip me. Firestore rules me read/write allow karna zaroori hai.</p>
+      </div>
+      <div class="settings-box">
         <h3>Info</h3>
-        <p>Data browser localStorage me save hota hai. Rates har year/month alag save hote hain.</p>
+        <p>Data pehle browser localStorage me save hota hai. Firebase ON ho to cloud pe bhi sync hota hai — mobile + computer same data.</p>
         <p><b>Android:</b> naya file open karo, phir Chrome menu → History → Clear browsing data → Cookies (is site) ya page hard refresh.</p>
       </div>
     </div>
@@ -434,14 +471,34 @@
     let currentYear, currentMonth, data = {};
 
     function storageKey(y,m){ return 'att_'+y+'_'+m; }
+
+    function afterLocalWrite(key){
+      try {
+        if(typeof cloudPushKey === 'function'){
+          const val = localStorage.getItem(key);
+          if(val !== null) cloudPushKey(key, val);
+        }
+      } catch(e) {}
+    }
+
     function ratesKey(y,m){ return 'att_rates_'+y+'_'+m; }
     function passKey(){ return 'att_clear_password'; }
     function tabsPassKey(){ return 'att_tabs_password'; }
     function lockKey(y,m){ return 'att_lock_'+y+'_'+m; }
     function isMonthLocked(y,m){ return localStorage.getItem(lockKey(y,m)) === '1'; }
     function setMonthLocked(y,m, locked){
-      if(locked) localStorage.setItem(lockKey(y,m), '1');
-      else localStorage.removeItem(lockKey(y,m));
+      const k = lockKey(y,m);
+      if(locked) {
+        localStorage.setItem(k, '1');
+        afterLocalWrite(k);
+      } else {
+        localStorage.removeItem(k);
+        // push deletion marker
+        if(fbReady && fbDb && !syncingFromCloud){
+          const office = getOfficeId();
+          if(office) fbDb.collection('offices').doc(office).collection('data').doc(k).delete().catch(function(){});
+        }
+      }
     }
 
     function loadRatesFor(y, m){
@@ -455,7 +512,9 @@
       return Array(MAX_EMP).fill(DEFAULT_RATE);
     }
     function saveRatesFor(y, m, arr){
-      localStorage.setItem(ratesKey(y,m), JSON.stringify(arr));
+      const k = ratesKey(y,m);
+      localStorage.setItem(k, JSON.stringify(arr));
+      afterLocalWrite(k);
     }
 
     function fixOldPDBEntries(){
@@ -554,7 +613,7 @@
           name: newName,
           desig: oldSlot.desig || 'COM.OP.'
         };
-        localStorage.setItem(storageKey(y, m), JSON.stringify(period));
+        localStorage.setItem(storageKey(y, m), JSON.stringify(period)); afterLocalWrite(storageKey(y, m));
         changedMonths++;
       }
 
@@ -593,9 +652,11 @@
           }
         }
       }
-      localStorage.setItem(storageKey(currentYear, currentMonth), JSON.stringify(period));
+      const sk = storageKey(currentYear, currentMonth);
+      localStorage.setItem(sk, JSON.stringify(period));
       data = period;
-      showStatus('Saved successfully!');
+      afterLocalWrite(sk);
+      showStatus('Saved successfully!' + (fbReady ? ' (+ cloud)' : ''));
     }
 
     // totalHours from entries; P display = duties.remHours (31.6 style)
@@ -788,7 +849,7 @@
         renderYearSummary();
       }
       if(name === 'totals'){ refreshTotalsEmpSelect(); renderGrandTotal(); }
-      if(name === 'settings'){ fillClearSelectors(); refreshClearPassBadge(); }
+      if(name === 'settings'){ try{ loadFirebaseForm(); }catch(e){} fillClearSelectors(); refreshClearPassBadge(); }
       if(name === 'backup') {
         const bs = document.getElementById('backupStatus');
         if(bs) bs.textContent = '';
@@ -1833,6 +1894,7 @@
               count++;
             }
           });
+          try { cloudPushAllLocal(); } catch(e) {}
           data = loadPeriod(currentYear, currentMonth);
           renderTable();
           document.getElementById('backupStatus').textContent = 'Restored ' + count + ' items. Page refresh recommended.';
@@ -1877,7 +1939,7 @@
       }
       if(!p1 || p1.length < 4){ showStatus('Password kam se kam 4 characters ka ho', true); return; }
       if(p1 !== p2){ showStatus('Password match nahi hua', true); return; }
-      localStorage.setItem(passKey(), p1);
+      localStorage.setItem(passKey(), p1); afterLocalWrite(passKey());
       document.getElementById('currentPass').value = '';
       document.getElementById('newPass').value = '';
       document.getElementById('confirmPass').value = '';
@@ -1909,7 +1971,7 @@
       }
       if(!p1 || p1.length < 4){ showStatus('Password kam se kam 4 characters ka ho', true); return; }
       if(p1 !== p2){ showStatus('Password match nahi hua', true); return; }
-      localStorage.setItem(tabsPassKey(), p1);
+      localStorage.setItem(tabsPassKey(), p1); afterLocalWrite(tabsPassKey());
       document.getElementById('currentTabsPass').value = '';
       document.getElementById('newTabsPass').value = '';
       document.getElementById('confirmTabsPass').value = '';
@@ -1951,7 +2013,7 @@
         if(period.attendance && period.attendance[empIdx]) delete period.attendance[empIdx];
         showStatus(MONTHS[m]+' '+y+' — '+empLabel+' clear ho gaya.');
       }
-      localStorage.setItem(storageKey(y,m), JSON.stringify(period));
+      localStorage.setItem(storageKey(y,m), JSON.stringify(period)); afterLocalWrite(storageKey(y,m));
       if(y === currentYear && m === currentMonth){ data = period; renderTable(); }
       document.getElementById('clearPass').value = '';
     }
@@ -2216,10 +2278,247 @@
     }
 
 
+
+    // ========== FIREBASE CLOUD SYNC ==========
+    const FB_CFG_KEY = 'att_firebase_config';
+    const FB_OFFICE_KEY = 'att_firebase_office';
+    let fbApp = null;
+    let fbDb = null;
+    let fbUnsub = null;
+    let syncingFromCloud = false;
+    let fbReady = false;
+
+    function getOfficeId(){
+      return (localStorage.getItem(FB_OFFICE_KEY) || '').trim();
+    }
+    function getFirebaseConfig(){
+      try {
+        const raw = localStorage.getItem(FB_CFG_KEY);
+        return raw ? JSON.parse(raw) : null;
+      } catch(e){ return null; }
+    }
+
+    function setSyncUI(msg, on){
+      const bar = document.getElementById('syncBar');
+      const t = document.getElementById('syncStatusText');
+      if(bar) bar.style.display = on ? 'block' : 'none';
+      if(t) t.textContent = msg || (on ? 'On' : 'Off');
+    }
+
+    function loadFirebaseForm(){
+      const cfg = getFirebaseConfig() || {};
+      const map = {
+        fbOfficeId: getOfficeId(),
+        fbApiKey: cfg.apiKey || '',
+        fbAuthDomain: cfg.authDomain || '',
+        fbProjectId: cfg.projectId || '',
+        fbAppId: cfg.appId || ''
+      };
+      Object.keys(map).forEach(id => {
+        const el = document.getElementById(id);
+        if(el) el.value = map[id];
+      });
+    }
+
+    function saveFirebaseSettings(){
+      const office = (document.getElementById('fbOfficeId').value || '').trim();
+      const cfg = {
+        apiKey: (document.getElementById('fbApiKey').value || '').trim(),
+        authDomain: (document.getElementById('fbAuthDomain').value || '').trim(),
+        projectId: (document.getElementById('fbProjectId').value || '').trim(),
+        appId: (document.getElementById('fbAppId').value || '').trim()
+      };
+      if(!office){
+        showStatus('Office ID likho (jaise COMOP-STAFF)', true);
+        return;
+      }
+      if(!cfg.apiKey || !cfg.projectId || !cfg.appId){
+        showStatus('apiKey, projectId, appId zaroori hain', true);
+        return;
+      }
+      if(!cfg.authDomain) cfg.authDomain = cfg.projectId + '.firebaseapp.com';
+      localStorage.setItem(FB_OFFICE_KEY, office);
+      localStorage.setItem(FB_CFG_KEY, JSON.stringify(cfg));
+      document.getElementById('fbStatus').textContent = 'Saved. Connecting…';
+      initFirebaseSync().then(function(ok){
+        document.getElementById('fbStatus').textContent = ok
+          ? 'Connected! Devices same Office ID se sync hongi.'
+          : 'Connect fail — config / rules check karo (console me error).';
+      });
+    }
+
+    function disconnectFirebase(){
+      if(fbUnsub){ try{ fbUnsub(); }catch(e){} fbUnsub = null; }
+      fbReady = false;
+      fbDb = null;
+      setSyncUI('Off', false);
+      document.getElementById('fbStatus').textContent = 'Disconnected (local data same rehta hai).';
+      showStatus('Cloud sync off');
+    }
+
+    function isSyncableKey(key){
+      if(!key) return false;
+      // sync attendance, rates, locks — not firebase config itself
+      if(key === FB_CFG_KEY || key === FB_OFFICE_KEY) return false;
+      return key.indexOf('att_') === 0;
+    }
+
+    async function initFirebaseSync(){
+      const cfg = getFirebaseConfig();
+      const office = getOfficeId();
+      if(!cfg || !office){
+        setSyncUI('Off — Settings me Firebase setup karo', false);
+        return false;
+      }
+      if(typeof firebase === 'undefined'){
+        setSyncUI('Firebase SDK load nahi hua (internet?)', false);
+        return false;
+      }
+      try {
+        if(fbUnsub){ try{ fbUnsub(); }catch(e){} fbUnsub = null; }
+        if(firebase.apps && firebase.apps.length){
+          fbApp = firebase.apps[0];
+        } else {
+          fbApp = firebase.initializeApp(cfg);
+        }
+        fbDb = firebase.firestore();
+        try {
+          await fbDb.enablePersistence({ synchronizeTabs: true });
+        } catch(e){
+          // ignore multiple tab / unsupported
+        }
+        // Live listener for whole office data
+        const col = fbDb.collection('offices').doc(office).collection('data');
+        fbUnsub = col.onSnapshot(function(snap){
+          if(!snap) return;
+          let changed = false;
+          let touchCurrent = false;
+          syncingFromCloud = true;
+          try {
+            snap.docChanges().forEach(function(change){
+              const key = change.doc.id;
+              if(!isSyncableKey(key)) return;
+              if(change.type === 'removed'){
+                localStorage.removeItem(key);
+                changed = true;
+                return;
+              }
+              const payload = change.doc.data();
+              if(!payload || typeof payload.v === 'undefined') return;
+              const val = String(payload.v);
+              if(localStorage.getItem(key) !== val){
+                localStorage.setItem(key, val);
+                changed = true;
+                if(key === storageKey(currentYear, currentMonth) || key === ratesKey(currentYear, currentMonth) || key === lockKey(currentYear, currentMonth)){
+                  touchCurrent = true;
+                }
+              }
+            });
+          } finally {
+            syncingFromCloud = false;
+          }
+          if(changed && touchCurrent){
+            try {
+              data = loadPeriod(currentYear, currentMonth);
+              renderTable();
+              showStatus('Cloud se data update hua');
+            } catch(e) {}
+          }
+          setSyncUI('On · Office: ' + office + ' · live', true);
+        }, function(err){
+          console.error('Firestore listen error', err);
+          setSyncUI('Error: ' + (err.message || err), true);
+        });
+        fbReady = true;
+        setSyncUI('On · Office: ' + office, true);
+        return true;
+      } catch(err){
+        console.error(err);
+        setSyncUI('Fail: ' + (err.message || err), false);
+        fbReady = false;
+        return false;
+      }
+    }
+
+    function cloudPushKey(key, value){
+      if(!fbReady || !fbDb || syncingFromCloud) return Promise.resolve();
+      if(!isSyncableKey(key)) return Promise.resolve();
+      const office = getOfficeId();
+      if(!office) return Promise.resolve();
+      return fbDb.collection('offices').doc(office).collection('data').doc(key)
+        .set({ v: value == null ? '' : String(value), t: Date.now() }, { merge: true })
+        .catch(function(e){ console.error('cloud push', key, e); });
+    }
+
+    function cloudPushAllLocal(){
+      if(!fbReady || !fbDb) return Promise.resolve(0);
+      const office = getOfficeId();
+      if(!office) return Promise.resolve(0);
+      const batchSize = 400;
+      let n = 0;
+      const writes = [];
+      for(let i=0; i<localStorage.length; i++){
+        const key = localStorage.key(i);
+        if(!isSyncableKey(key)) continue;
+        const val = localStorage.getItem(key);
+        writes.push(cloudPushKey(key, val));
+        n++;
+      }
+      return Promise.all(writes).then(function(){ return n; });
+    }
+
+    function manualCloudPushAll(){
+      if(!fbReady){ showStatus('Pehle Settings me Firebase connect karo', true); return; }
+      setSyncUI('Pushing…', true);
+      cloudPushAllLocal().then(function(n){
+        showStatus('Cloud pe push: ' + n + ' items');
+        setSyncUI('On · Office: ' + getOfficeId() + ' · pushed', true);
+      });
+    }
+
+    function manualCloudPull(){
+      if(!fbReady || !fbDb){ showStatus('Pehle Settings me Firebase connect karo', true); return; }
+      const office = getOfficeId();
+      setSyncUI('Pulling…', true);
+      fbDb.collection('offices').doc(office).collection('data').get()
+        .then(function(snap){
+          syncingFromCloud = true;
+          let n = 0;
+          try {
+            snap.forEach(function(doc){
+              const key = doc.id;
+              if(!isSyncableKey(key)) return;
+              const payload = doc.data();
+              if(payload && typeof payload.v !== 'undefined'){
+                localStorage.setItem(key, String(payload.v));
+                n++;
+              }
+            });
+          } finally { syncingFromCloud = false; }
+          data = loadPeriod(currentYear, currentMonth);
+          renderTable();
+          showStatus('Cloud se pull: ' + n + ' items');
+          setSyncUI('On · Office: ' + office + ' · pulled', true);
+        })
+        .catch(function(e){
+          showStatus('Pull fail: ' + e.message, true);
+        });
+    }
+
+    // Patch helpers used after local writes
+    function afterLocalWrite(key){
+      try {
+        const val = localStorage.getItem(key);
+        if(val !== null) cloudPushKey(key, val);
+      } catch(e) {}
+    }
+
     // Init
     initSelectors();
+    try { loadFirebaseForm(); } catch(e) {}
     data = loadPeriod(currentYear, currentMonth);
     renderTable();
+    try { initFirebaseSync(); } catch(e) { console.error(e); }
     try { autoFillTodayPresent(false); } catch(e) {}
     try {
       let startTab = 'att';
