@@ -267,6 +267,13 @@
         <h3>Backup Data</h3>
         <p class="hint" style="margin:0 0 12px 0;">Saara attendance + rates + password ek JSON file me download hoga. Phone/PC pe safe rakh lo.</p>
         <button class="btn btn-success" onclick="backupData()">Download Backup (JSON)</button>
+        <h3 style="margin-top:28px;">☁ Cloud Backup (Mobile ↔ Computer)</h3>
+        <p class="hint" style="margin:0 0 12px 0;">
+          Mobile pe <b>Save Backup to Cloud</b> → Computer pe <b>Restore from Cloud</b> (ya ulta).
+          File WhatsApp se bhejne ki zaroorat nahi. Internet + Firebase Connect zaroori.
+        </p>
+        <button class="btn btn-success" onclick="cloudBackupSave()">Save Backup to Cloud</button>
+        <button class="btn btn-primary" onclick="cloudBackupRestore()" style="margin-left:8px;">Restore from Cloud</button>
         <h3 style="margin-top:28px;">Export PDF</h3>
         <p class="hint" style="margin:0 0 12px 0;">Attendance sheet + Year Summary (sirf named employees).</p>
         <button class="btn btn-primary" onclick="openExportModal()">Export PDF</button>
@@ -1861,7 +1868,7 @@
       };
       for(let i=0; i<localStorage.length; i++){
         const k = localStorage.key(i);
-        if(k && (k.startsWith('att_') || k === 'att_clear_password' || k === 'att_salary_rates')){
+        if(k && k.indexOf('att_') === 0){
           payload.data[k] = localStorage.getItem(k);
         }
       }
@@ -1874,6 +1881,95 @@
       document.getElementById('backupStatus').textContent = 'Backup downloaded successfully.';
       showStatus('Backup downloaded!');
     }
+
+
+    function buildBackupPayload(){
+      try { if(document.getElementById('code_0')) savePeriod(); } catch(e) {}
+      const payload = {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        app: 'Attendance-STAFF-COM.OP',
+        data: {}
+      };
+      for(let i=0; i<localStorage.length; i++){
+        const k = localStorage.key(i);
+        if(k && k.indexOf('att_') === 0){
+          payload.data[k] = localStorage.getItem(k);
+        }
+      }
+      return payload;
+    }
+
+    function cloudBackupSave(){
+      if(!fbReady || !fbDb){
+        showStatus('Pehle Settings me Firebase Connect karo (Cloud Sync On)', true);
+        return;
+      }
+      const office = getOfficeId();
+      if(!office){ showStatus('Office ID missing', true); return; }
+      const payload = buildBackupPayload();
+      const key = 'att_cloud_backup';
+      const val = JSON.stringify(payload);
+      const st = document.getElementById('backupStatus');
+      if(st) st.textContent = 'Cloud pe backup save ho raha hai…';
+      fbDb.collection('offices').doc(office).collection('data').doc(key)
+        .set({ v: val, t: Date.now(), type: 'full_backup' }, { merge: true })
+        .then(function(){
+          try { localStorage.setItem(key, val); } catch(e) {}
+          if(st) st.textContent = 'Cloud backup saved! Doosri device pe "Restore from Cloud" use karo.';
+          showStatus('Cloud backup saved ✓');
+        })
+        .catch(function(e){
+          if(st) st.textContent = 'Cloud backup fail: ' + e.message;
+          showStatus('Cloud backup fail: ' + e.message, true);
+        });
+    }
+
+    function cloudBackupRestore(){
+      if(!fbReady || !fbDb){
+        showStatus('Pehle Settings me Firebase Connect karo', true);
+        return;
+      }
+      if(!confirm('Cloud backup se is device ka current data replace ho jayega. Continue?')) return;
+      const office = getOfficeId();
+      const key = 'att_cloud_backup';
+      const st = document.getElementById('backupStatus');
+      if(st) st.textContent = 'Cloud se backup aa raha hai…';
+      fbDb.collection('offices').doc(office).collection('data').doc(key).get()
+        .then(function(doc){
+          if(!doc.exists){
+            showStatus('Cloud pe backup nahi mila. Pehle dusri device se Save Backup to Cloud karo.', true);
+            if(st) st.textContent = 'No cloud backup found.';
+            return;
+          }
+          const raw = doc.data().v;
+          let payload;
+          try { payload = JSON.parse(raw); } catch(err){
+            showStatus('Invalid cloud backup data', true); return;
+          }
+          const map = payload.data || payload;
+          let count = 0;
+          syncingFromCloud = true;
+          try {
+            Object.keys(map).forEach(function(k){
+              if(typeof map[k] === 'string' && k.indexOf('att_') === 0){
+                localStorage.setItem(k, map[k]);
+                count++;
+              }
+            });
+          } finally { syncingFromCloud = false; }
+          data = loadPeriod(currentYear, currentMonth);
+          renderTable();
+          try { if(typeof cloudPushAllLocal === 'function') cloudPushAllLocal(); } catch(e) {}
+          if(st) st.textContent = 'Cloud se restore: ' + count + ' items.';
+          showStatus('Cloud restore complete! ✓');
+        })
+        .catch(function(e){
+          showStatus('Cloud restore fail: ' + e.message, true);
+          if(st) st.textContent = 'Fail: ' + e.message;
+        });
+    }
+
 
     function restoreData(){
       const fileInput = document.getElementById('restoreFile');
