@@ -195,6 +195,18 @@
         </div>
         <p id="bulkFillStatus" style="margin-top:12px;font-size:0.85rem;color:#276749;"></p>
       </div>
+
+      <div class="settings-box" style="margin:16px;">
+        <h3>📱 Attendance Summary — Free SMS / Share</h3>
+        <div class="row">
+          <label>Employee:</label>
+          <select id="smsEmpSelect"></select>
+        </div>
+        <div class="row" style="flex-wrap:wrap;gap:8px;">
+          <button class="btn btn-primary" onclick="sendAttendanceSummary('half')">Send 1–15 Summary</button>
+          <button class="btn btn-success" onclick="sendAttendanceSummary('full')">Send Full Month Summary</button>
+        </div>
+      </div>
     </div>
 
     <!-- TAB: Salary Rates (per year + month) -->
@@ -493,7 +505,8 @@
     function ratesKey(y,m){ return 'att_rates_'+y+'_'+m; }
     function passKey(){ return 'att_clear_password'; }
     function tabsPassKey(){ return 'att_tabs_password'; }
-    function lockKey(y,m){ return 'att_lock_'+y+'_'+m; }
+
+        function lockKey(y,m){ return 'att_lock_'+y+'_'+m; }
     function isMonthLocked(y,m){ return localStorage.getItem(lockKey(y,m)) === '1'; }
     function setMonthLocked(y,m, locked){
       const k = lockKey(y,m);
@@ -1141,12 +1154,14 @@
 
     }
 
+
     function refreshEmployeeSelectors(){
       refreshEmployeeSelect('bulkEmpSelect', false);
       refreshEmployeeSelect('clearEmpSelect', true);
       refreshTotalsEmpSelect();
       refreshRenameEmpSlotOptions();
       refreshBulkFillDates();
+      try { refreshSmsEmpSelect(); } catch(e) {}
     }
 
     function collectAllKnownEmployees(){
@@ -1314,6 +1329,185 @@
       });
       const toSel = document.getElementById('bulkToDate');
       if(toSel && !toSel.value) toSel.value = days; // default: month ke aakhri date tak
+    }
+
+
+    function phonesKey(){ return 'att_emp_phones'; }
+    function loadSmsPhones(){
+      try {
+        const raw = localStorage.getItem(phonesKey());
+        if(raw){
+          const arr = JSON.parse(raw);
+          if(Array.isArray(arr) && arr.length === MAX_EMP) return arr.map(function(x){ return String(x||''); });
+        }
+      } catch(e) {}
+      return Array(MAX_EMP).fill('');
+    }
+    function saveSmsPhones(){
+      const arr = [];
+      for(let i=0; i<MAX_EMP; i++){
+        const el = document.getElementById('sms_phone_'+i);
+        arr.push(el ? el.value.trim() : '');
+      }
+      localStorage.setItem(phonesKey(), JSON.stringify(arr));
+      try { afterLocalWrite(phonesKey()); } catch(e) {}
+      const st = null;
+      if(st) st.textContent = 'Mobile numbers saved.';
+      showStatus('Phone numbers saved');
+    }
+    function renderSmsPhoneBox(){
+      const box = null;
+      if(!box) return;
+      const phones = loadSmsPhones();
+      let html = '';
+      for(let i=0; i<MAX_EMP; i++){
+        const nameEl = document.getElementById('name_'+i);
+        const codeEl = document.getElementById('code_'+i);
+        const nm = nameEl ? nameEl.value.trim() : '';
+        const cd = codeEl ? codeEl.value.trim() : '';
+        const label = nm || cd || ('Employee '+(i+1));
+        html += '<div class="row" style="margin-bottom:6px;"><label style="min-width:120px;">'+esc(label)+'</label>';
+        html += '<input type="tel" id="sms_phone_'+i+'" value="'+esc(phones[i]||'')+'" placeholder="91XXXXXXXXXX" style="flex:1;max-width:200px;"></div>';
+      }
+      box.innerHTML = html;
+    }
+    function refreshSmsEmpSelect(){
+      refreshEmployeeSelect('smsEmpSelect', true);
+      renderSmsPhoneBox();
+    }
+
+    function calcSummaryForRange(att, fromD, toD){
+      const slice = {};
+      for(let d=fromD; d<=toD; d++){
+        if(att && att[d] != null && String(att[d]).trim() !== '') slice[d] = att[d];
+      }
+      return calcSummary(slice, toD);
+    }
+
+    function buildAttendanceMessage(empIdx, mode){
+      try { if(document.getElementById('code_0')) savePeriod(); } catch(e) {}
+      const period = loadPeriod(currentYear, currentMonth);
+      const emp = (period.employees && period.employees[empIdx]) ? period.employees[empIdx] : { name:'', code:'' };
+      const name = (emp.name || '').trim() || 'Employee';
+      const code = (emp.code || '').trim() || '—';
+      const att = (period.attendance && period.attendance[empIdx]) ? period.attendance[empIdx] : {};
+      const days = getDaysInMonth(currentYear, currentMonth);
+      let fromD = 1, toD = days;
+      if(mode === 'half'){
+        toD = Math.min(15, days);
+      }
+      const sum = calcSummaryForRange(att, fromD, toD);
+      const rates = loadRatesFor(currentYear, currentMonth);
+      const sal = calcSalary(sum.totalHours, rates[empIdx]);
+      const monthName = MONTHS[currentMonth] || '';
+      const periodLabel = monthName + ' ' + currentYear;
+      const NL = '\n';
+      // Exact format requested by user
+      let msg = name + ', Code: ' + code + ' Your Attendance Is' + NL;
+      msg += 'H-' + sum.h + NL;
+      msg += 'L-' + sum.l + NL;
+      msg += 'A-' + sum.a + NL;
+      msg += 'PP-' + sum.pp + NL;
+      msg += 'P-' + sum.pHours + NL;
+      msg += 'Salary-' + sal + ' For The Month Of : ' + periodLabel;
+      if(mode === 'half') msg += ' (1-15)';
+      const phones = loadSmsPhones();
+      return { msg: msg, name: name, code: code, phone: (phones[empIdx]||'').trim(), sum: sum, sal: sal };
+    }
+
+    
+    async function shareOneMessage(payload){
+      const text = payload.msg;
+      const phone = (payload.phone || '').replace(/[^0-9+]/g, '');
+      // 1) sms: link if phone
+      if(phone){
+        const smsUrl = 'sms:' + phone + '?body=' + encodeURIComponent(text);
+        try {
+          window.location.href = smsUrl;
+          return 'sms';
+        } catch(e) {}
+      }
+      // 2) Web Share API
+      try {
+        if(navigator.share){
+          await navigator.share({ title: 'Attendance Summary', text: text });
+          return 'share';
+        }
+      } catch(e){
+        if(e && e.name === 'AbortError') return 'cancel';
+      }
+      // 3) Clipboard
+      try {
+        if(navigator.clipboard && navigator.clipboard.writeText){
+          await navigator.clipboard.writeText(text);
+          return 'copy';
+        }
+      } catch(e) {}
+      // 4) fallback: try execCommand copy
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        return 'copy';
+      } catch(e2) {}
+      return 'preview';
+    }
+
+    async function sendAttendanceSummary(mode){
+      const sel = document.getElementById('smsEmpSelect');
+      const st = null;
+      const val = sel ? sel.value : 'all';
+      const indices = [];
+      if(val === 'all' || val === ''){
+        for(let i=0; i<MAX_EMP; i++){
+          const nameEl = document.getElementById('name_'+i);
+          if(nameEl && nameEl.value.trim()) indices.push(i);
+        }
+      } else {
+        const idx = parseInt(val, 10);
+        if(!isNaN(idx)) indices.push(idx);
+      }
+      if(indices.length === 0){
+        if(st) st.textContent = 'Koi employee name nahi mila.';
+        showStatus('Pehle employee name likho', true);
+        return;
+      }
+      if(indices.length === 1){
+        const payload = buildAttendanceMessage(indices[0], mode);
+        const how = await shareOneMessage(payload);
+        if(how === 'copy') showStatus('Summary copy ho gaya — paste karke bhejo');
+        else if(how === 'preview') showStatus('Share nahi hua — text clipboard try karo', true);
+        return;
+      }
+      // Multiple: show combined preview + share first, rest copy
+      let allText = '';
+      for(let k=0; k<indices.length; k++){
+        const p = buildAttendanceMessage(indices[k], mode);
+        allText += p.msg + '\\n\\n----------\\n\\n';
+      }
+      const ta = null;
+      if(ta){ ta.style.display = 'block'; ta.value = allText.trim(); }
+      try {
+        if(navigator.share){
+          await navigator.share({ title: 'Attendance Summaries', text: allText.trim() });
+          if(st) st.textContent = 'Share open — ' + indices.length + ' employees.';
+          return;
+        }
+      } catch(e){
+        if(e && e.name === 'AbortError'){ if(st) st.textContent = 'Cancel'; return; }
+      }
+      try {
+        if(navigator.clipboard && navigator.clipboard.writeText){
+          await navigator.clipboard.writeText(allText.trim());
+          if(st) st.textContent = indices.length + ' summaries copy ho gaye — paste karke bhejo.';
+          showStatus('Copied all summaries');
+          return;
+        }
+      } catch(e) {}
+      if(st) st.textContent = 'Preview neeche — select karke copy karo.';
     }
 
     function bulkFillMonth(){
