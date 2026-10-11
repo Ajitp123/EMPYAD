@@ -661,7 +661,42 @@
       return { employees: JSON.parse(JSON.stringify(defaultEmployees)), attendance: {}, notes: {} };
     }
 
-    function savePeriod(){
+
+    function periodFillScore(jsonOrObj){
+      try {
+        const p = (typeof jsonOrObj === 'string') ? JSON.parse(jsonOrObj) : jsonOrObj;
+        if(!p || typeof p !== 'object') return 0;
+        let n = 0;
+        if(Array.isArray(p.employees)){
+          p.employees.forEach(function(e){
+            if(e && String(e.name||'').trim()) n += 3;
+            if(e && String(e.code||'').trim()) n += 1;
+          });
+        }
+        if(p.attendance && typeof p.attendance === 'object'){
+          Object.keys(p.attendance).forEach(function(i){
+            const row = p.attendance[i] || {};
+            Object.keys(row).forEach(function(d){
+              if(String(row[d]||'').trim() !== '') n += 1;
+            });
+          });
+        }
+        return n;
+      } catch(e){ return 0; }
+    }
+
+    function isAttendancePeriodKey(key){
+      return !!(key && /^att_\d+_\d+$/.test(key));
+    }
+
+    let liveSyncEnabled = false; // true only after user edits a cell
+    function markUserEdited(){
+      liveSyncEnabled = true;
+    }
+
+    function savePeriod(opts){
+      opts = opts || {};
+      const silent = !!opts.silent;
       const period = { employees: [], attendance: {}, notes: data.notes || {} };
       const daysInMonth = getDaysInMonth(currentYear, currentMonth);
       for(let i=0; i<MAX_EMP; i++){
@@ -683,11 +718,65 @@
         }
       }
       const sk = storageKey(currentYear, currentMonth);
-      localStorage.setItem(sk, JSON.stringify(period));
+      period._updatedAt = Date.now();
+      const json = JSON.stringify(period);
+      // Agar silent live sync hai aur local bilkul khali hai to cloud pe mat bhejo
+      // (doosri device ka data wipe ho sakta hai)
+      const score = periodFillScore(period);
+      localStorage.setItem(sk, json);
       data = period;
+      if(silent && score === 0){
+        // local empty — cloud ko touch mat karo
+        return;
+      }
       afterLocalWrite(sk);
-      showStatus('Saved successfully!' + (fbReady ? ' (+ cloud)' : ''));
+      if(!silent){
+        showStatus('Saved successfully!' + (fbReady ? ' (+ cloud)' : ''));
+      } else if(fbReady){
+        setSyncUI('On · Office: ' + (getOfficeId()||'') + ' · live sync', true);
+      }
     }
+
+    let liveSyncTimer = null;
+    function scheduleLiveSync(){
+      markUserEdited();
+      if(typeof syncingFromCloud !== 'undefined' && syncingFromCloud) return;
+      if(isMonthLocked(currentYear, currentMonth)) return;
+      if(!liveSyncEnabled) return;
+      if(liveSyncTimer) clearTimeout(liveSyncTimer);
+      liveSyncTimer = setTimeout(function(){
+        liveSyncTimer = null;
+        try {
+          if(typeof syncingFromCloud !== 'undefined' && syncingFromCloud) return;
+          if(isMonthLocked(currentYear, currentMonth)) return;
+          if(!document.getElementById('code_0')) return;
+          savePeriod({ silent: true });
+        } catch(e) { console.error('live sync', e); }
+      }, 600);
+    }
+
+    function renderTablePreserveFocus(){
+      const ae = document.activeElement;
+      let keepId = null, selStart = null, selEnd = null;
+      if(ae && ae.id && (ae.classList.contains('att-input') || ae.classList.contains('name-input') || ae.classList.contains('code-input'))){
+        keepId = ae.id;
+        try { selStart = ae.selectionStart; selEnd = ae.selectionEnd; } catch(e) {}
+      }
+      renderTable();
+      if(keepId){
+        const el = document.getElementById(keepId);
+        if(el){
+          try {
+            el.focus();
+            if(selStart != null && typeof el.setSelectionRange === 'function'){
+              const len = (el.value || '').length;
+              el.setSelectionRange(Math.min(selStart, len), Math.min(selEnd != null ? selEnd : selStart, len));
+            }
+          } catch(e) {}
+        }
+      }
+    }
+
 
     // totalHours from entries; P display = duties.remHours (31.6 style)
     // DB = Double duty = same as 16 hours (2 duties). 16 or DB — same calculation.
@@ -851,7 +940,11 @@
 
     function performSwitchTab(name, fromPopstate){
       // Always sync Attendance form → data before leaving / opening other tabs
-      try { if(document.getElementById('code_0') && !isMonthLocked(currentYear, currentMonth)) savePeriod(); } catch(e) {}
+      try {
+        if(document.getElementById('code_0') && !isMonthLocked(currentYear, currentMonth) && liveSyncEnabled){
+          savePeriod({ silent: true });
+        }
+      } catch(e) {}
 
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'tab-'+name));
@@ -1137,14 +1230,14 @@
         const sal = calcSalary(sum.totalHours, rates[i]);
 
         html += '<tr>';
-        html += '<td class="code-cell"><input class="code-input" id="code_'+i+'" value="'+esc(emp.code)+'" maxlength="10"></td>';
-        html += '<td class="name-cell"><input class="name-input" id="name_'+i+'" value="'+esc(emp.name)+'" oninput="refreshEmployeeSelectors()"></td>';
+        html += '<td class="code-cell"><input class="code-input" id="code_'+i+'" value="'+esc(emp.code)+'" maxlength="10" oninput="scheduleLiveSync()"></td>';
+        html += '<td class="name-cell"><input class="name-input" id="name_'+i+'" value="'+esc(emp.name)+'" oninput="refreshEmployeeSelectors();scheduleLiveSync()"></td>';
         html += '<td class="desig-cell">COM.OP.</td>';
         for(let d=1; d<=days; d++){
           const val = att[d] || '';
           const noteText = (data.notes && data.notes[i] && data.notes[i][d]) ? data.notes[i][d] : '';
           const hasNote = noteText.trim() !== '';
-          html += '<td class="att-cell'+(hasNote?' has-note':'')+'"><input class="att-input" id="att_'+i+'_'+d+'" value="'+esc(val)+'" maxlength="5" oninput="normalizeInput(this)" onchange="updateSummary('+i+')" onblur="normalizeInput(this);updateSummary('+i+')" ondblclick="openNotesModal('+i+','+d+')" onkeydown="attCellKeyNav(event,'+i+','+d+')" title="'+esc(noteText)+'"></td>';
+          html += '<td class="att-cell'+(hasNote?' has-note':'')+'"><input class="att-input" id="att_'+i+'_'+d+'" value="'+esc(val)+'" maxlength="5" oninput="normalizeInput(this);updateSummary('+i+')" onchange="updateSummary('+i+')" onblur="normalizeInput(this);updateSummary('+i+')" ondblclick="openNotesModal('+i+','+d+')" onkeydown="attCellKeyNav(event,'+i+','+d+')" title="'+esc(noteText)+'"></td>';
         }
         html += '<td class="summary-cell" id="sum_h_'+i+'" tabindex="0" onkeydown="summaryCellKeyNav(event,'+i+',0,'+days+')">'+sum.h+'</td>';
         html += '<td class="summary-cell" id="sum_l_'+i+'" tabindex="0" onkeydown="summaryCellKeyNav(event,'+i+',1,'+days+')">'+sum.l+'</td>';
@@ -1743,6 +1836,7 @@
       const sal = calcSalary(sum.totalHours, rates[empIdx]);
       document.getElementById('sum_sal_'+empIdx).textContent = sal.toLocaleString('en-IN');
       highlightTopSalary();
+          try { scheduleLiveSync(); } catch(e) {}
     }
 
     function saveData(){
@@ -2129,6 +2223,9 @@
       return payload;
     }
 
+    // Firestore field limit ~1MB — bade backup ko chunks me save karo
+    const CLOUD_BACKUP_CHUNK = 800000;
+
     function cloudBackupSave(){
       if(!fbReady || !fbDb){
         showStatus('Pehle Settings me Firebase Connect karo (Cloud Sync On)', true);
@@ -2137,15 +2234,38 @@
       const office = getOfficeId();
       if(!office){ showStatus('Office ID missing', true); return; }
       const payload = buildBackupPayload();
-      const key = 'att_cloud_backup';
+      // Compact JSON (no pretty print) — size kam
       const val = JSON.stringify(payload);
       const st = document.getElementById('backupStatus');
       if(st) st.textContent = 'Cloud pe backup save ho raha hai…';
-      fbDb.collection('offices').doc(office).collection('data').doc(key)
-        .set({ v: val, t: Date.now(), type: 'full_backup' }, { merge: true })
+
+      const col = fbDb.collection('offices').doc(office).collection('data');
+      const chunks = [];
+      for(let i=0; i<val.length; i += CLOUD_BACKUP_CHUNK){
+        chunks.push(val.slice(i, i + CLOUD_BACKUP_CHUNK));
+      }
+      const t = Date.now();
+      const writes = [];
+      writes.push(col.doc('att_cloud_backup_meta').set({
+        type: 'full_backup_meta',
+        chunks: chunks.length,
+        t: t,
+        bytes: val.length
+      }, { merge: true }));
+      for(let i=0; i<chunks.length; i++){
+        writes.push(col.doc('att_cloud_backup_' + i).set({
+          type: 'full_backup_chunk',
+          i: i,
+          v: chunks[i],
+          t: t
+        }, { merge: true }));
+      }
+      // purana single-doc backup hatao (agar size fail kiya tha)
+      writes.push(col.doc('att_cloud_backup').delete().catch(function(){}));
+
+      Promise.all(writes)
         .then(function(){
-          try { localStorage.setItem(key, val); } catch(e) {}
-          if(st) st.textContent = 'Cloud backup saved! Doosri device pe "Restore from Cloud" use karo.';
+          if(st) st.textContent = 'Cloud backup saved! (' + chunks.length + ' parts, ' + Math.round(val.length/1024) + ' KB)';
           showStatus('Cloud backup saved ✓');
         })
         .catch(function(e){
@@ -2161,20 +2281,37 @@
       }
       if(!confirm('Cloud backup se is device ka current data replace ho jayega. Continue?')) return;
       const office = getOfficeId();
-      const key = 'att_cloud_backup';
       const st = document.getElementById('backupStatus');
       if(st) st.textContent = 'Cloud se backup aa raha hai…';
-      fbDb.collection('offices').doc(office).collection('data').doc(key).get()
-        .then(function(doc){
-          if(!doc.exists){
-            showStatus('Cloud pe backup nahi mila. Pehle dusri device se Save Backup to Cloud karo.', true);
-            if(st) st.textContent = 'No cloud backup found.';
-            return;
+      const col = fbDb.collection('offices').doc(office).collection('data');
+
+      col.doc('att_cloud_backup_meta').get()
+        .then(function(metaDoc){
+          // New chunked format
+          if(metaDoc.exists && metaDoc.data() && metaDoc.data().chunks){
+            const n = Number(metaDoc.data().chunks) || 0;
+            const gets = [];
+            for(let i=0; i<n; i++) gets.push(col.doc('att_cloud_backup_' + i).get());
+            return Promise.all(gets).then(function(docs){
+              let raw = '';
+              for(let i=0; i<docs.length; i++){
+                if(!docs[i].exists) throw new Error('Backup part ' + i + ' missing');
+                raw += String((docs[i].data()||{}).v || '');
+              }
+              return raw;
+            });
           }
-          const raw = doc.data().v;
+          // Old single-doc format (small backups)
+          return col.doc('att_cloud_backup').get().then(function(doc){
+            if(!doc.exists) throw new Error('NO_BACKUP');
+            return String((doc.data()||{}).v || '');
+          });
+        })
+        .then(function(raw){
+          if(!raw) throw new Error('Empty backup');
           let payload;
           try { payload = JSON.parse(raw); } catch(err){
-            showStatus('Invalid cloud backup data', true); return;
+            throw new Error('Invalid backup JSON');
           }
           const map = payload.data || payload;
           let count = 0;
@@ -2182,6 +2319,8 @@
           try {
             Object.keys(map).forEach(function(k){
               if(typeof map[k] === 'string' && k.indexOf('att_') === 0){
+                // cloud backup snapshot keys — restore, skip meta/chunk noise
+                if(k.indexOf('att_cloud_backup') === 0) return;
                 localStorage.setItem(k, map[k]);
                 count++;
               }
@@ -2189,13 +2328,17 @@
           } finally { syncingFromCloud = false; }
           data = loadPeriod(currentYear, currentMonth);
           renderTable();
-          try { if(typeof cloudPushAllLocal === 'function') cloudPushAllLocal(); } catch(e) {}
           if(st) st.textContent = 'Cloud se restore: ' + count + ' items.';
           showStatus('Cloud restore complete! ✓');
         })
         .catch(function(e){
-          showStatus('Cloud restore fail: ' + e.message, true);
-          if(st) st.textContent = 'Fail: ' + e.message;
+          if(e && e.message === 'NO_BACKUP'){
+            showStatus('Cloud pe backup nahi mila. Pehle Save Backup to Cloud karo.', true);
+            if(st) st.textContent = 'No cloud backup found.';
+            return;
+          }
+          showStatus('Cloud restore fail: ' + (e.message || e), true);
+          if(st) st.textContent = 'Fail: ' + (e.message || e);
         });
     }
 
@@ -2731,12 +2874,30 @@
               const payload = change.doc.data();
               if(!payload || typeof payload.v === 'undefined') return;
               const val = String(payload.v);
-              if(localStorage.getItem(key) !== val){
-                localStorage.setItem(key, val);
-                changed = true;
-                if(key === storageKey(currentYear, currentMonth) || key === ratesKey(currentYear, currentMonth) || key === lockKey(currentYear, currentMonth)){
-                  touchCurrent = true;
-                }
+              const localVal = localStorage.getItem(key);
+              if(localVal === val) return;
+
+              // Attendance period: empty remote must NOT wipe filled local
+              if(isAttendancePeriodKey(key)){
+                const rScore = periodFillScore(val);
+                const lScore = periodFillScore(localVal);
+                let localT = 0;
+                try {
+                  if(localVal){ const lp = JSON.parse(localVal); localT = Number(lp._updatedAt)||0; }
+                } catch(e){}
+                const remoteT = Number(payload.t)||0;
+                // remote empty, local has data → skip
+                if(rScore === 0 && lScore > 0) return;
+                // local richer and same/newer time → keep local
+                if(lScore > rScore && localT >= remoteT) return;
+                // local newer timestamp and has any data → keep local
+                if(localT > remoteT && lScore > 0) return;
+              }
+
+              localStorage.setItem(key, val);
+              changed = true;
+              if(key === storageKey(currentYear, currentMonth) || key === ratesKey(currentYear, currentMonth) || key === lockKey(currentYear, currentMonth)){
+                touchCurrent = true;
               }
             });
           } finally {
@@ -2745,8 +2906,13 @@
           if(changed && touchCurrent){
             try {
               data = loadPeriod(currentYear, currentMonth);
-              renderTable();
-              showStatus('Cloud se data update hua');
+              if(typeof renderTablePreserveFocus === 'function') renderTablePreserveFocus();
+              else renderTable();
+              // live: soft status only if not typing
+              const ae = document.activeElement;
+              if(!(ae && ae.classList && ae.classList.contains('att-input'))){
+                showStatus('Live sync — cloud se update');
+              }
             } catch(e) {}
           }
           setSyncUI('On · Office: ' + office + ' · live', true);
@@ -2770,8 +2936,34 @@
       if(!isSyncableKey(key)) return Promise.resolve();
       const office = getOfficeId();
       if(!office) return Promise.resolve();
-      return fbDb.collection('offices').doc(office).collection('data').doc(key)
-        .set({ v: value == null ? '' : String(value), t: Date.now() }, { merge: true })
+      const valStr = value == null ? '' : String(value);
+      const ref = fbDb.collection('offices').doc(office).collection('data').doc(key);
+
+      // Attendance: kabhi empty local se filled cloud mat mitao
+      if(isAttendancePeriodKey(key)){
+        const lScore = periodFillScore(valStr);
+        return ref.get().then(function(doc){
+          if(doc.exists){
+            const remote = doc.data() || {};
+            const rScore = periodFillScore(remote.v);
+            if(lScore === 0 && rScore > 0){
+              console.warn('Skip empty push over filled cloud', key);
+              return;
+            }
+            // agar remote zyada filled hai aur naya bhi hai, empty/sparser skip
+            let localT = 0;
+            try { localT = Number(JSON.parse(valStr)._updatedAt)||0; } catch(e){}
+            const remoteT = Number(remote.t)||0;
+            if(rScore > lScore && remoteT > localT){
+              console.warn('Skip sparser push', key);
+              return;
+            }
+          }
+          return ref.set({ v: valStr, t: Date.now() }, { merge: true });
+        }).catch(function(e){ console.error('cloud push', key, e); });
+      }
+
+      return ref.set({ v: valStr, t: Date.now() }, { merge: true })
         .catch(function(e){ console.error('cloud push', key, e); });
     }
 
