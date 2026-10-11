@@ -102,6 +102,12 @@
     .status.show { display: block; }
     .status.err { color: #9b2c2c; background: #fed7d7; }
     .settings-box { max-width: 480px; margin: 16px; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f7fafc; }
+    .att-bottom-row { display: flex; flex-wrap: wrap; gap: 0; align-items: stretch; margin: 0 8px 16px 8px; }
+    .att-bottom-row > .settings-box { flex: 1 1 320px; max-width: none; margin: 8px; min-width: 280px; }
+    @media (min-width: 900px) {
+      .att-bottom-row { flex-wrap: nowrap; }
+      .att-bottom-row > .settings-box { flex: 1 1 0; }
+    }
     .settings-box h3 { margin-bottom: 12px; color: #2c5282; }
     .settings-box p { font-size: 0.85rem; color: #4a5568; margin-bottom: 10px; }
     .settings-box .row { margin-bottom: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -167,44 +173,46 @@
       </div>
       <div class="sheet-footer">Prepared by : AJEET PARMAR</div>
 
-      <div class="settings-box" style="margin:16px;">
-        <h3>Bulk Fill — Pura Month Bharo</h3>
-        <div class="row">
-          <label>Year/Month:</label>
-          <span id="bulkFillPeriodLabel" style="font-weight:700;color:#2c5282;"></span>
+      <div class="att-bottom-row">
+        <div class="settings-box">
+          <h3>Bulk Fill — Pura Month Bharo</h3>
+          <div class="row">
+            <label>Year/Month:</label>
+            <span id="bulkFillPeriodLabel" style="font-weight:700;color:#2c5282;"></span>
+          </div>
+          <div class="row">
+            <label>Employee:</label>
+            <select id="bulkEmpSelect"></select>
+            <label>Value:</label>
+            <select id="bulkValueSelect">
+              <option value="P">P (Present / 8 hr)</option>
+              <option value="A">A (Absent)</option>
+              <option value="L">L (Leave)</option>
+              <option value="H">H (Holiday)</option>
+              <option value="WO">WO (Week Off)</option>
+              <option value="DB">DB (Double Duty / 16 hr)</option>
+            </select>
+          </div>
+          <div class="row">
+            <label>From Date:</label>
+            <select id="bulkFromDate"></select>
+            <label>To Date:</label>
+            <select id="bulkToDate"></select>
+            <button class="btn btn-primary" id="btnBulkFill" onclick="bulkFillMonth()">Fill Dates</button>
+          </div>
+          <p id="bulkFillStatus" style="margin-top:12px;font-size:0.85rem;color:#276749;"></p>
         </div>
-        <div class="row">
-          <label>Employee:</label>
-          <select id="bulkEmpSelect"></select>
-          <label>Value:</label>
-          <select id="bulkValueSelect">
-            <option value="P">P (Present / 8 hr)</option>
-            <option value="A">A (Absent)</option>
-            <option value="L">L (Leave)</option>
-            <option value="H">H (Holiday)</option>
-            <option value="WO">WO (Week Off)</option>
-            <option value="DB">DB (Double Duty / 16 hr)</option>
-          </select>
-        </div>
-        <div class="row">
-          <label>From Date:</label>
-          <select id="bulkFromDate"></select>
-          <label>To Date:</label>
-          <select id="bulkToDate"></select>
-          <button class="btn btn-primary" id="btnBulkFill" onclick="bulkFillMonth()">Fill Dates</button>
-        </div>
-        <p id="bulkFillStatus" style="margin-top:12px;font-size:0.85rem;color:#276749;"></p>
-      </div>
 
-      <div class="settings-box" style="margin:16px;">
-        <h3>📱 Attendance Summary — Free SMS / Share</h3>
-        <div class="row">
-          <label>Employee:</label>
-          <select id="smsEmpSelect"></select>
-        </div>
-        <div class="row" style="flex-wrap:wrap;gap:8px;">
-          <button class="btn btn-primary" onclick="sendAttendanceSummary('half')">Send 1–15 Summary</button>
-          <button class="btn btn-success" onclick="sendAttendanceSummary('full')">Send Full Month Summary</button>
+        <div class="settings-box">
+          <h3>📱 Attendance Summary — Free SMS / Share</h3>
+          <div class="row">
+            <label>Employee:</label>
+            <select id="smsEmpSelect"></select>
+          </div>
+          <div class="row" style="flex-wrap:wrap;gap:8px;">
+            <button class="btn btn-primary" onclick="sendAttendanceSummary('half')">Send 1–15 Summary</button>
+            <button class="btn btn-success" onclick="sendAttendanceSummary('full')">Send Full Month Summary</button>
+          </div>
         </div>
       </div>
     </div>
