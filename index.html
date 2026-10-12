@@ -493,12 +493,13 @@
     const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
     const DAYS_SHORT = ['Su','Mo','Tu','We','Th','Fr','Sa'];
     const DEFAULT_RATE = 850;
+    // Nayi install = bilkul blank (koi default name/code nahi)
     const defaultEmployees = [
-      { code: '49630', name: 'AJEET PARMAR', desig: 'COM.OP.' },
-      { code: '54461', name: 'HEMANSHU TAILOR', desig: 'COM.OP.' },
-      { code: '64714', name: 'MEHUL PATEL', desig: 'COM.OP.' },
-      { code: '54496', name: 'RAKESH RAJPUT', desig: 'COM.OP.' },
-      { code: '66459', name: 'RAVI PATEL', desig: 'COM.OP.' },
+      { code: '', name: '', desig: 'COM.OP.' },
+      { code: '', name: '', desig: 'COM.OP.' },
+      { code: '', name: '', desig: 'COM.OP.' },
+      { code: '', name: '', desig: 'COM.OP.' },
+      { code: '', name: '', desig: 'COM.OP.' },
       { code: '', name: '', desig: 'COM.OP.' }
     ];
     let currentYear, currentMonth, data = {};
@@ -582,43 +583,87 @@
         showStatus('Month LOCKED hai. Pehle Unlock karo.', true);
         return;
       }
-      requireSecurityPassword('Employee REMOVE ke liye Security password:', function(){
-        syncMaxEmp();
-        if(MAX_EMP <= 1){
-          showStatus('Kam se kam 1 employee slot zaroori hai', true);
-          return;
-        }
-        const idx = MAX_EMP - 1;
-        let name = '', code = '', hasAtt = false;
-        const nameEl = document.getElementById('name_'+idx);
-        const codeEl = document.getElementById('code_'+idx);
-        if(nameEl) name = nameEl.value.trim();
-        if(codeEl) code = codeEl.value.trim();
+      syncMaxEmp();
+      if(MAX_EMP <= 1){
+        showStatus('Kam se kam 1 employee slot zaroori hai', true);
+        return;
+      }
+      // List: Slot number + name/code
+      let list = 'Kaunsa employee REMOVE karna hai?\n\n';
+      for(let i=0; i<MAX_EMP; i++){
+        const nameEl = document.getElementById('name_'+i);
+        const codeEl = document.getElementById('code_'+i);
+        const nm = nameEl ? nameEl.value.trim() : '';
+        const cd = codeEl ? codeEl.value.trim() : '';
+        list += (i+1) + ') ' + (nm || '(blank)') + (cd ? (' | ' + cd) : '') + '\n';
+      }
+      list += '\nSlot number likho (1–' + MAX_EMP + '):';
+      const ans = prompt(list, String(MAX_EMP));
+      if(ans === null) return;
+      const slot = parseInt(String(ans).trim(), 10);
+      if(isNaN(slot) || slot < 1 || slot > MAX_EMP){
+        showStatus('Galat slot number', true);
+        return;
+      }
+      const idx = slot - 1;
+      const nameEl = document.getElementById('name_'+idx);
+      const codeEl = document.getElementById('code_'+idx);
+      const name = nameEl ? nameEl.value.trim() : '';
+      const code = codeEl ? codeEl.value.trim() : '';
+      const label = name || code || ('Slot ' + slot);
+
+      requireSecurityPassword('Remove "' + label + '" — Security password:', function(){
+        if(!confirm('Employee REMOVE: "' + label + '" (slot ' + slot + ')\nIs month ka iska attendance bhi hat jayega. Continue?')) return;
+
+        // Save current form into data first
+        try { if(document.getElementById('code_0')) savePeriod({ silent: true }); } catch(e) {}
+
+        // Build new employees/attendance without this index
         const days = getDaysInMonth(currentYear, currentMonth);
-        for(let d=1; d<=days; d++){
-          const inp = document.getElementById('att_'+idx+'_'+d);
-          if(inp && inp.value.trim()){ hasAtt = true; break; }
+        const newEmps = [];
+        const newAtt = {};
+        const newNotes = {};
+        let ni = 0;
+        for(let i=0; i<MAX_EMP; i++){
+          if(i === idx) continue;
+          const codeE = document.getElementById('code_'+i);
+          const nameE = document.getElementById('name_'+i);
+          newEmps.push({
+            code: codeE ? codeE.value.trim() : '',
+            name: nameE ? nameE.value.trim() : '',
+            desig: 'COM.OP.'
+          });
+          newAtt[ni] = {};
+          for(let d=1; d<=days; d++){
+            const inp = document.getElementById('att_'+i+'_'+d);
+            if(inp && inp.value.trim()){
+              let v = inp.value.trim();
+              if(/^[a-zA-Z]+$/.test(v)) v = v.toUpperCase();
+              newAtt[ni][d] = v;
+            }
+          }
+          if(data.notes && data.notes[i]) newNotes[ni] = data.notes[i];
+          ni++;
         }
-        const label = name || code || ('Slot ' + (idx+1));
-        if(name || code || hasAtt){
-          if(!confirm('Last employee "' + label + '" remove hoga (is month ka data bhi). Continue?')) return;
-        }
-        // Reduce count
+
         const next = MAX_EMP - 1;
         localStorage.setItem(empCountKey(), String(next));
         try { afterLocalWrite(empCountKey()); } catch(e) {}
         MAX_EMP = next;
-        // Save period without last row (savePeriod uses MAX_EMP)
-        try {
-          if(document.getElementById('code_0')) savePeriod({ silent: true });
-        } catch(e) {}
-        // Also trim other months' employee arrays length for consistency? optional - leave data, just hide slots
-        data = loadPeriod(currentYear, currentMonth);
-        if(data.employees && data.employees.length > MAX_EMP){
-          data.employees = data.employees.slice(0, MAX_EMP);
-        }
+
+        const period = {
+          employees: newEmps,
+          attendance: newAtt,
+          notes: newNotes,
+          _updatedAt: Date.now()
+        };
+        const sk = storageKey(currentYear, currentMonth);
+        localStorage.setItem(sk, JSON.stringify(period));
+        data = period;
+        try { afterLocalWrite(sk); } catch(e) {}
+
         renderTable();
-        showStatus('Employee slot remove: ' + label);
+        showStatus('Removed: ' + label + ' — ab ' + MAX_EMP + ' employees');
         try { scheduleLiveSync(); } catch(e) {}
       });
     }
@@ -1415,10 +1460,27 @@
     }
 
     function collectAllKnownEmployees(){
-      // Sirf current month nahi — jitne bhi saved periods hain unme se ab tak jitne bhi
-      // employees kabhi bhi kisi slot me the (chahe ab chale gaye hon), sabko collect karo.
+      // CODE unique identity — same name alag code = alag employee
       const seen = {};
       const list = [];
+      function addEmp(e){
+        if(!e) return;
+        const code = String(e.code || '').trim();
+        const name = String(e.name || '').trim();
+        if(!code) return; // code zaroori — unique key
+        const key = empCodeKey(code);
+        if(seen[key]){
+          // update name if blank pehle
+          if(name){
+            for(let i=0; i<list.length; i++){
+              if(empCodeKey(list[i].code) === key && name) list[i].name = name;
+            }
+          }
+          return;
+        }
+        seen[key] = true;
+        list.push({ name: name, code: code });
+      }
       for(let i=0; i<localStorage.length; i++){
         const key = localStorage.key(i);
         if(!key || key.indexOf('att_') !== 0) continue;
@@ -1427,20 +1489,14 @@
         let period;
         try{ period = JSON.parse(localStorage.getItem(key)); }catch(e){ continue; }
         if(!period || !period.employees) continue;
-        period.employees.forEach(e=>{
-          const nm = (e && e.name) ? String(e.name).trim() : '';
-          if(!nm) return;
-          const upper = nm.toUpperCase();
-          if(!seen[upper]){ seen[upper] = true; list.push({ name: nm, code: (e.code||'').trim() }); }
-        });
+        period.employees.forEach(addEmp);
       }
-      getMasterEmployees().forEach(e=>{
-        const nm = (e.name || '').trim();
-        if(!nm) return;
-        const upper = nm.toUpperCase();
-        if(!seen[upper]){ seen[upper] = true; list.push({ name: nm, code: (e.code||'').trim() }); }
+      getMasterEmployees().forEach(addEmp);
+      list.sort(function(a,b){
+        const ca = empCodeKey(a.code), cb = empCodeKey(b.code);
+        if(ca < cb) return -1; if(ca > cb) return 1;
+        return (a.name||'').localeCompare(b.name||'');
       });
-      list.sort(function(a,b){ return a.name.localeCompare(b.name); });
       return list;
     }
 
@@ -1455,8 +1511,8 @@
       sel.appendChild(oAll);
       collectAllKnownEmployees().forEach(e=>{
         const o = document.createElement('option');
-        o.value = e.name;
-        o.textContent = e.name;
+        o.value = e.code;
+        o.textContent = (e.code ? e.code + ' — ' : '') + (e.name || '');
         sel.appendChild(o);
       });
       const opts = Array.from(sel.options).map(o=>o.value);
@@ -2206,27 +2262,32 @@
       let empMonthHtml = '';
       const empYearTotals = [];
 
-      // Poore saal me jitne bhi alag-alag naam kisi bhi month me kisi bhi slot me aaye hon, sabko collect karo.
-      // Naam-based matching isliye taaki agar beech mahine me employee badal jaye (jaise slot me AJEET → SHIFT),
-      // to dono ka calculation kabhi merge na ho — har naam ka apna alag total bane.
-      const nameOrder = []; // [{key, code, name, firstMonth}]
-      const nameSeen = {};
+      // CODE-based — same name different code = separate; slot change OK
+      const codeOrder = []; // [{code, name, firstMonth}]
+      const codeSeen = {};
       for(let m=0; m<12; m++){
         const period = loadPeriod(y, m);
         const emps = (period.employees && period.employees.length) ? ensureEmpArray(period.employees, Math.max(MAX_EMP, period.employees.length)) : ensureEmpArray(defaultEmployees, MAX_EMP);
-        emps.forEach(e=>{
-          const nm = (e && e.name) ? String(e.name).trim() : '';
-          if(!nm) return;
-          const key = nm.toUpperCase();
-          if(!nameSeen[key]){
-            nameSeen[key] = true;
-            nameOrder.push({ key: key, code: (e.code||'').trim(), name: nm, firstMonth: m });
+        emps.forEach(function(e){
+          const code = String(e && e.code || '').trim();
+          if(!code) return;
+          const key = empCodeKey(code);
+          if(!codeSeen[key]){
+            codeSeen[key] = true;
+            codeOrder.push({ code: code, name: String(e.name||'').trim(), firstMonth: m });
+          } else {
+            const nm = String(e.name||'').trim();
+            if(nm){
+              for(let i=0; i<codeOrder.length; i++){
+                if(empCodeKey(codeOrder[i].code) === key && nm) codeOrder[i].name = nm;
+              }
+            }
           }
         });
       }
-      nameOrder.sort((a,b) => a.firstMonth - b.firstMonth);
+      codeOrder.sort(function(a,b){ return a.firstMonth - b.firstMonth; });
 
-      nameOrder.forEach(entry=>{
+      codeOrder.forEach(function(entry){
         let rows = '';
         let eh=0, el=0, ea=0, epp=0, esal=0;
         let anyMonth = false;
@@ -2234,12 +2295,8 @@
         for(let m=0; m<12; m++){
           const period = loadPeriod(y, m);
           const periodEmployees = (period.employees && period.employees.length) ? ensureEmpArray(period.employees, Math.max(MAX_EMP, period.employees.length)) : ensureEmpArray(defaultEmployees, MAX_EMP);
-          let idx = -1;
-          for(let k=0; k<periodEmployees.length; k++){
-            const nm = (periodEmployees[k] && periodEmployees[k].name) ? String(periodEmployees[k].name).trim().toUpperCase() : '';
-            if(nm === entry.key){ idx = k; break; }
-          }
-          if(idx === -1) continue; // is month me ye employee tha hi nahi — row skip
+          const idx = findEmpIndexByCode(periodEmployees, entry.code);
+          if(idx === -1) continue;
 
           const days = getDaysInMonth(y, m);
           const rates = loadRatesFor(y, m);
@@ -2263,18 +2320,18 @@
       });
 
       if(!empMonthHtml){
-        empMonthHtml = '<p class="hint">Koi employee name nahi hai. Pehle Attendance tab me name likho + Save.</p>';
+        empMonthHtml = '<p class="hint">Koi employee CODE nahi hai. Pehle Attendance tab me Code + Name likho + Save.</p>';
       }
       document.getElementById('empMonthBox').innerHTML = empMonthHtml;
 
       let eHtml = '<table class="summary"><thead><tr><th>Code</th><th>Name</th><th>H</th><th>L</th><th>A</th><th>PP</th><th>Total Salary (Rs)</th></tr></thead><tbody>';
       let grand = 0;
       if(empYearTotals.length === 0){
-        eHtml += '<tr><td colspan="7">No named employees</td></tr>';
+        eHtml += '<tr><td colspan="7">No employees with Code</td></tr>';
       } else {
         let topSal = -1;
-        empYearTotals.forEach(e => { if(e.salary > topSal) topSal = e.salary; });
-        empYearTotals.forEach(e => {
+        empYearTotals.forEach(function(e){ if(e.salary > topSal) topSal = e.salary; });
+        empYearTotals.forEach(function(e){
           const top = (e.salary === topSal && topSal > 0) ? ' class="row-top-salary"' : '';
           eHtml += '<tr'+top+'><td>'+esc(e.code)+'</td><td class="name">'+esc(e.name)+'</td><td>'+e.h+'</td><td>'+e.l+'</td><td>'+e.a+'</td><td>'+e.pp+'</td><td><b>'+e.salary.toLocaleString('en-IN')+'</b></td></tr>';
           grand += e.salary;
@@ -2299,11 +2356,10 @@
       if(startAbs > endAbs){ const tmp = startAbs; startAbs = endAbs; endAbs = tmp; }
 
       const masterEmps = collectAllKnownEmployees();
-      const targets = (empFilter === 'all') ? masterEmps : masterEmps.filter(e => e.name.trim().toUpperCase() === empFilter.toUpperCase());
+      const targets = (empFilter === 'all') ? masterEmps : masterEmps.filter(function(e){ return empCodeKey(e.code) === empCodeKey(empFilter); });
 
       const totals = []; // { code, name, a, l, salary, monthly:[{y,m,a,l,salary}] }
-      targets.forEach(target=>{
-        const targetNameUpper = target.name.trim().toUpperCase();
+      targets.forEach(function(target){
         let ea = 0, el = 0, esal = 0;
         const monthly = [];
         for(let abs = startAbs; abs <= endAbs; abs++){
@@ -2311,14 +2367,9 @@
           const m = abs % 12;
           const period = loadPeriod(y, m);
           const periodEmployees = (period.employees && period.employees.length) ? ensureEmpArray(period.employees, Math.max(MAX_EMP, period.employees.length)) : ensureEmpArray(defaultEmployees, MAX_EMP);
-          // Match by NAME for this specific period, not by fixed index —
-          // isse purane months me index alag hone par bhi total sahi aayega.
-          let idx = -1;
-          for(let k=0; k<periodEmployees.length; k++){
-            const nm = (periodEmployees[k] && periodEmployees[k].name) ? String(periodEmployees[k].name).trim().toUpperCase() : '';
-            if(nm === targetNameUpper){ idx = k; break; }
-          }
-          if(idx === -1) continue; // is period me ye employee naam se maujood nahi tha
+          // Match by unique CODE (slot change / same name OK)
+          const idx = findEmpIndexByCode(periodEmployees, target.code);
+          if(idx === -1) continue;
           const days = getDaysInMonth(y, m);
           const rates = loadRatesFor(y, m);
           const att = (period.attendance && period.attendance[idx]) ? period.attendance[idx] : {};
