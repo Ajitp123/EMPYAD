@@ -127,7 +127,7 @@
     <header>
       <div>
         <h1>Department : STAFF (COM.OP)</h1>
-        <div class="sub">Attendance + Salary Report (Add employees anytime)</div>
+        <div class="sub">Attendance + Salary Report (Max 6 Employees)</div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
         <button class="btn btn-success" id="btnInstall" style="display:none;" onclick="triggerInstall()">Install App</button>
@@ -161,8 +161,6 @@
         <select id="monthSelect" onchange="changePeriod()"></select>
         <input type="hidden" id="deptName" value="STAFF (COM.OP)">
         <button class="btn btn-primary" onclick="saveData()">Save (Alt+S)</button>
-        <button class="btn btn-success" onclick="addEmployeeSlot()">+ Add Employee</button>
-        <button class="btn btn-danger" onclick="removeEmployeeSlot()">− Remove Employee</button>
         <button class="btn btn-outline" onclick="autoFillTodayPresent(true)">✅ Khaali Din P Bharo (Alt+K)</button>
         <button class="btn btn-outline" id="btnUnlock" style="display:none;" onclick="unlockMonth()">Unlock (Password) (Alt+U)</button>
         <span id="lockBadge" style="display:none;margin-left:6px;padding:4px 10px;background:#c53030;color:#fff;border-radius:6px;font-size:0.8rem;font-weight:700;">LOCKED</span>
@@ -377,7 +375,7 @@
         </div>
         <div class="row">
           <label style="min-width:90px;">apiKey:</label>
-          <input type="text" id="fbApiKey" placeholder="AIza... (poora paste karo)" style="flex:1;font-family:monospace;font-size:0.75rem;" autocomplete="off" spellcheck="false">
+          <input type="text" id="fbApiKey" placeholder="AIza..." style="flex:1;">
         </div>
         <div class="row">
           <label style="min-width:90px;">authDomain:</label>
@@ -389,7 +387,7 @@
         </div>
         <div class="row">
           <label style="min-width:90px;">appId:</label>
-          <input type="text" id="fbAppId" placeholder="1:xxx:web:xxx (poora paste karo)" style="flex:1;font-family:monospace;font-size:0.75rem;" autocomplete="off" spellcheck="false">
+          <input type="text" id="fbAppId" placeholder="1:xxx:web:xxx" style="flex:1;">
         </div>
         <div class="row">
           <button class="btn btn-success" onclick="saveFirebaseSettings()">Save & Connect Sync</button>
@@ -487,186 +485,19 @@
   </div>
 
   <script>
-    let MAX_EMP = 6;
-    const HARD_MAX_EMP = 30;
-    const DEFAULT_EMP_COUNT = 6;
+    const MAX_EMP = 6;
     const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
     const DAYS_SHORT = ['Su','Mo','Tu','We','Th','Fr','Sa'];
     const DEFAULT_RATE = 850;
-    // Nayi install = bilkul blank (koi default name/code nahi)
     const defaultEmployees = [
-      { code: '', name: '', desig: 'COM.OP.' },
-      { code: '', name: '', desig: 'COM.OP.' },
-      { code: '', name: '', desig: 'COM.OP.' },
-      { code: '', name: '', desig: 'COM.OP.' },
-      { code: '', name: '', desig: 'COM.OP.' },
+      { code: '49630', name: 'AJEET PARMAR', desig: 'COM.OP.' },
+      { code: '54461', name: 'HEMANSHU TAILOR', desig: 'COM.OP.' },
+      { code: '64714', name: 'MEHUL PATEL', desig: 'COM.OP.' },
+      { code: '54496', name: 'RAKESH RAJPUT', desig: 'COM.OP.' },
+      { code: '66459', name: 'RAVI PATEL', desig: 'COM.OP.' },
       { code: '', name: '', desig: 'COM.OP.' }
     ];
     let currentYear, currentMonth, data = {};
-
-    function empCountKey(){ return 'att_emp_count'; }
-    function emptyEmployee(){ return { code: '', name: '', desig: 'COM.OP.' }; }
-    function syncMaxEmp(){
-      let n = parseInt(localStorage.getItem(empCountKey()), 10);
-      if(!n || isNaN(n) || n < 1) n = DEFAULT_EMP_COUNT;
-      try {
-        if(data && Array.isArray(data.employees) && data.employees.length > n) n = data.employees.length;
-      } catch(e) {}
-      // scan saved periods for longer employee lists
-      try {
-        for(let i=0; i<localStorage.length; i++){
-          const k = localStorage.key(i);
-          if(!k || k.indexOf('att_') !== 0) continue;
-          if(k.indexOf('att_rates_') === 0 || k.indexOf('att_lock_') === 0) continue;
-          if(k === empCountKey() || k.indexOf('att_cloud') === 0) continue;
-          if(!/^att_\d+_\d+$/.test(k)) continue;
-          const raw = localStorage.getItem(k);
-          if(!raw) continue;
-          const p = JSON.parse(raw);
-          if(p && Array.isArray(p.employees) && p.employees.length > n) n = p.employees.length;
-        }
-      } catch(e) {}
-      n = Math.min(HARD_MAX_EMP, Math.max(1, n));
-      MAX_EMP = n;
-      try { localStorage.setItem(empCountKey(), String(n)); } catch(e) {}
-      return MAX_EMP;
-    }
-    function ensureEmpArray(arr, n){
-      arr = Array.isArray(arr) ? arr.slice() : [];
-      while(arr.length < n) arr.push(emptyEmployee());
-      // keep existing slots; don't slice off names user might need — only when explicitly reducing
-      return arr;
-    }
-    function ensureRatesArray(arr, n){
-      arr = Array.isArray(arr) ? arr.map(function(v){ return Number(v)||DEFAULT_RATE; }) : [];
-      while(arr.length < n) arr.push(DEFAULT_RATE);
-      return arr.slice(0, n);
-    }
-    function requireSecurityPassword(title, onOk){
-      const stored = localStorage.getItem(tabsPassKey());
-      if(!stored){
-        showStatus('Pehle Security tab me password set karo', true);
-        return;
-      }
-      askPassword(title, stored, onOk, function(){
-        showStatus('Cancel — password nahi mila', true);
-      });
-    }
-
-    function addEmployeeSlot(){
-      if(isMonthLocked(currentYear, currentMonth)){
-        showStatus('Month LOCKED hai. Pehle Unlock karo.', true);
-        return;
-      }
-      requireSecurityPassword('Employee ADD ke liye Security password:', function(){
-        syncMaxEmp();
-        if(MAX_EMP >= HARD_MAX_EMP){
-          showStatus('Maximum ' + HARD_MAX_EMP + ' employees allowed', true);
-          return;
-        }
-        const next = MAX_EMP + 1;
-        localStorage.setItem(empCountKey(), String(next));
-        try { afterLocalWrite(empCountKey()); } catch(e) {}
-        MAX_EMP = next;
-        try {
-          if(document.getElementById('code_0')) savePeriod({ silent: true });
-        } catch(e) {}
-        data = loadPeriod(currentYear, currentMonth);
-        renderTable();
-        showStatus('Employee slot #' + next + ' add ho gaya — name/code likho');
-        try { scheduleLiveSync(); } catch(e) {}
-      });
-    }
-
-    function removeEmployeeSlot(){
-      if(isMonthLocked(currentYear, currentMonth)){
-        showStatus('Month LOCKED hai. Pehle Unlock karo.', true);
-        return;
-      }
-      syncMaxEmp();
-      if(MAX_EMP <= 1){
-        showStatus('Kam se kam 1 employee slot zaroori hai', true);
-        return;
-      }
-      // List: Slot number + name/code
-      let list = 'Kaunsa employee REMOVE karna hai?\n\n';
-      for(let i=0; i<MAX_EMP; i++){
-        const nameEl = document.getElementById('name_'+i);
-        const codeEl = document.getElementById('code_'+i);
-        const nm = nameEl ? nameEl.value.trim() : '';
-        const cd = codeEl ? codeEl.value.trim() : '';
-        list += (i+1) + ') ' + (nm || '(blank)') + (cd ? (' | ' + cd) : '') + '\n';
-      }
-      list += '\nSlot number likho (1–' + MAX_EMP + '):';
-      const ans = prompt(list, String(MAX_EMP));
-      if(ans === null) return;
-      const slot = parseInt(String(ans).trim(), 10);
-      if(isNaN(slot) || slot < 1 || slot > MAX_EMP){
-        showStatus('Galat slot number', true);
-        return;
-      }
-      const idx = slot - 1;
-      const nameEl = document.getElementById('name_'+idx);
-      const codeEl = document.getElementById('code_'+idx);
-      const name = nameEl ? nameEl.value.trim() : '';
-      const code = codeEl ? codeEl.value.trim() : '';
-      const label = name || code || ('Slot ' + slot);
-
-      requireSecurityPassword('Remove "' + label + '" — Security password:', function(){
-        if(!confirm('Employee REMOVE: "' + label + '" (slot ' + slot + ')\nIs month ka iska attendance bhi hat jayega. Continue?')) return;
-
-        // Save current form into data first
-        try { if(document.getElementById('code_0')) savePeriod({ silent: true }); } catch(e) {}
-
-        // Build new employees/attendance without this index
-        const days = getDaysInMonth(currentYear, currentMonth);
-        const newEmps = [];
-        const newAtt = {};
-        const newNotes = {};
-        let ni = 0;
-        for(let i=0; i<MAX_EMP; i++){
-          if(i === idx) continue;
-          const codeE = document.getElementById('code_'+i);
-          const nameE = document.getElementById('name_'+i);
-          newEmps.push({
-            code: codeE ? codeE.value.trim() : '',
-            name: nameE ? nameE.value.trim() : '',
-            desig: 'COM.OP.'
-          });
-          newAtt[ni] = {};
-          for(let d=1; d<=days; d++){
-            const inp = document.getElementById('att_'+i+'_'+d);
-            if(inp && inp.value.trim()){
-              let v = inp.value.trim();
-              if(/^[a-zA-Z]+$/.test(v)) v = v.toUpperCase();
-              newAtt[ni][d] = v;
-            }
-          }
-          if(data.notes && data.notes[i]) newNotes[ni] = data.notes[i];
-          ni++;
-        }
-
-        const next = MAX_EMP - 1;
-        localStorage.setItem(empCountKey(), String(next));
-        try { afterLocalWrite(empCountKey()); } catch(e) {}
-        MAX_EMP = next;
-
-        const period = {
-          employees: newEmps,
-          attendance: newAtt,
-          notes: newNotes,
-          _updatedAt: Date.now()
-        };
-        const sk = storageKey(currentYear, currentMonth);
-        localStorage.setItem(sk, JSON.stringify(period));
-        data = period;
-        try { afterLocalWrite(sk); } catch(e) {}
-
-        renderTable();
-        showStatus('Removed: ' + label + ' — ab ' + MAX_EMP + ' employees');
-        try { scheduleLiveSync(); } catch(e) {}
-      });
-    }
 
     function storageKey(y,m){ return 'att_'+y+'_'+m; }
 
@@ -701,12 +532,11 @@
     }
 
     function loadRatesFor(y, m){
-      syncMaxEmp();
       const raw = localStorage.getItem(ratesKey(y,m));
       if(raw){
         try{
           const arr = JSON.parse(raw);
-          if(Array.isArray(arr)) return ensureRatesArray(arr, MAX_EMP);
+          if(Array.isArray(arr) && arr.length === MAX_EMP) return arr.map(v => Number(v)||DEFAULT_RATE);
         }catch(e){}
       }
       return Array(MAX_EMP).fill(DEFAULT_RATE);
@@ -804,10 +634,9 @@
         const y = Math.floor(abs/12);
         const m = abs % 12;
         const period = loadPeriod(y, m); // agar month ka data nahi hai to default se bana dega
-        if(!period.employees || !Array.isArray(period.employees)){
+        if(!period.employees || period.employees.length !== MAX_EMP){
           period.employees = JSON.parse(JSON.stringify(defaultEmployees));
         }
-        period.employees = ensureEmpArray(period.employees, MAX_EMP);
         const oldSlot = period.employees[slotIdx] || {};
         period.employees[slotIdx] = {
           code: newCode,
@@ -827,23 +656,9 @@
     }
 
     function loadPeriod(y,m){
-      syncMaxEmp();
       const raw = localStorage.getItem(storageKey(y,m));
-      if(raw){
-        try{
-          const p = JSON.parse(raw);
-          if(!p.notes) p.notes = {};
-          if(!Array.isArray(p.employees)) p.employees = JSON.parse(JSON.stringify(defaultEmployees));
-          // expand employee slots if global count grew
-          if(p.employees.length > MAX_EMP){
-            MAX_EMP = Math.min(HARD_MAX_EMP, p.employees.length);
-            try { localStorage.setItem(empCountKey(), String(MAX_EMP)); } catch(e) {}
-          }
-          p.employees = ensureEmpArray(p.employees, MAX_EMP);
-          return p;
-        }catch(e){}
-      }
-      return { employees: ensureEmpArray(JSON.parse(JSON.stringify(defaultEmployees)), MAX_EMP), attendance: {}, notes: {} };
+      if(raw){ try{ const p = JSON.parse(raw); if(!p.notes) p.notes = {}; return p; }catch(e){} }
+      return { employees: JSON.parse(JSON.stringify(defaultEmployees)), attendance: {}, notes: {} };
     }
 
 
@@ -882,7 +697,6 @@
     function savePeriod(opts){
       opts = opts || {};
       const silent = !!opts.silent;
-      syncMaxEmp();
       const period = { employees: [], attendance: {}, notes: data.notes || {} };
       const daysInMonth = getDaysInMonth(currentYear, currentMonth);
       for(let i=0; i<MAX_EMP; i++){
@@ -1054,22 +868,15 @@
 
     function unlockMonth(){
       const stored = localStorage.getItem(passKey());
-      function doUnlock(){
-        setMonthLocked(currentYear, currentMonth, false);
-        applyLockState();
-        markUserEdited();
-        showStatus('Unlocked — ab change kar sakte ho. Save ke baad phir lock ho jayega.');
-        setTimeout(function(){ focusFirstEmptyCell(); }, 50);
-      }
       if(!stored){
-        // Password set nahi — phir bhi unlock allow (warna mobile pe atak jata hai)
-        if(confirm('Password set nahi hai. Month unlock karein?')) doUnlock();
+        showStatus('Pehle Settings me password set karo', true);
         return;
       }
       askPassword('Unlock ke liye password:', stored, function(){
-        doUnlock();
-      }, function(){
-        showStatus('Unlock cancel — galat password ya band kiya', true);
+        setMonthLocked(currentYear, currentMonth, false);
+        applyLockState();
+        showStatus('Unlocked — ab change kar sakte ho. Save ke baad phir lock ho jayega.');
+        setTimeout(function(){ focusFirstEmptyCell(); }, 50);
       });
     }
 
@@ -1399,7 +1206,6 @@
     }
 
     function renderTable(){
-      syncMaxEmp();
       const days = getDaysInMonth(currentYear, currentMonth);
       const rates = loadRatesFor(currentYear, currentMonth);
       const head = document.getElementById('tableHead');
@@ -1418,7 +1224,7 @@
 
       let html = '';
       for(let i=0; i<MAX_EMP; i++){
-        const emp = (data.employees && data.employees[i]) ? data.employees[i] : (defaultEmployees[i] || emptyEmployee());
+        const emp = (data.employees && data.employees[i]) ? data.employees[i] : defaultEmployees[i];
         const att = (data.attendance && data.attendance[i]) ? data.attendance[i] : {};
         const sum = calcSummary(att, days);
         const sal = calcSalary(sum.totalHours, rates[i]);
@@ -1460,27 +1266,10 @@
     }
 
     function collectAllKnownEmployees(){
-      // CODE unique identity — same name alag code = alag employee
+      // Sirf current month nahi — jitne bhi saved periods hain unme se ab tak jitne bhi
+      // employees kabhi bhi kisi slot me the (chahe ab chale gaye hon), sabko collect karo.
       const seen = {};
       const list = [];
-      function addEmp(e){
-        if(!e) return;
-        const code = String(e.code || '').trim();
-        const name = String(e.name || '').trim();
-        if(!code) return; // code zaroori — unique key
-        const key = empCodeKey(code);
-        if(seen[key]){
-          // update name if blank pehle
-          if(name){
-            for(let i=0; i<list.length; i++){
-              if(empCodeKey(list[i].code) === key && name) list[i].name = name;
-            }
-          }
-          return;
-        }
-        seen[key] = true;
-        list.push({ name: name, code: code });
-      }
       for(let i=0; i<localStorage.length; i++){
         const key = localStorage.key(i);
         if(!key || key.indexOf('att_') !== 0) continue;
@@ -1489,14 +1278,20 @@
         let period;
         try{ period = JSON.parse(localStorage.getItem(key)); }catch(e){ continue; }
         if(!period || !period.employees) continue;
-        period.employees.forEach(addEmp);
+        period.employees.forEach(e=>{
+          const nm = (e && e.name) ? String(e.name).trim() : '';
+          if(!nm) return;
+          const upper = nm.toUpperCase();
+          if(!seen[upper]){ seen[upper] = true; list.push({ name: nm, code: (e.code||'').trim() }); }
+        });
       }
-      getMasterEmployees().forEach(addEmp);
-      list.sort(function(a,b){
-        const ca = empCodeKey(a.code), cb = empCodeKey(b.code);
-        if(ca < cb) return -1; if(ca > cb) return 1;
-        return (a.name||'').localeCompare(b.name||'');
+      getMasterEmployees().forEach(e=>{
+        const nm = (e.name || '').trim();
+        if(!nm) return;
+        const upper = nm.toUpperCase();
+        if(!seen[upper]){ seen[upper] = true; list.push({ name: nm, code: (e.code||'').trim() }); }
       });
+      list.sort(function(a,b){ return a.name.localeCompare(b.name); });
       return list;
     }
 
@@ -1511,8 +1306,8 @@
       sel.appendChild(oAll);
       collectAllKnownEmployees().forEach(e=>{
         const o = document.createElement('option');
-        o.value = e.code;
-        o.textContent = (e.code ? e.code + ' — ' : '') + (e.name || '');
+        o.value = e.name;
+        o.textContent = e.name;
         sel.appendChild(o);
       });
       const opts = Array.from(sel.options).map(o=>o.value);
@@ -1534,7 +1329,7 @@
         const nameEl = document.getElementById('name_'+i);
         let liveName = nameEl ? nameEl.value.trim() : '';
         if(!liveName){
-          const emp = (data.employees && data.employees[i]) ? data.employees[i] : (defaultEmployees[i] || emptyEmployee());
+          const emp = (data.employees && data.employees[i]) ? data.employees[i] : defaultEmployees[i];
           liveName = (emp && emp.name && emp.name.trim()) ? emp.name.trim() : '';
         }
         const label = liveName || ('Employee ' + (i+1) + ' (blank)');
@@ -1644,10 +1439,7 @@
         const raw = localStorage.getItem(phonesKey());
         if(raw){
           const arr = JSON.parse(raw);
-          if(Array.isArray(arr)){
-            while(arr.length < MAX_EMP) arr.push('');
-            return arr.slice(0, MAX_EMP).map(function(x){ return String(x||''); });
-          }
+          if(Array.isArray(arr) && arr.length === MAX_EMP) return arr.map(function(x){ return String(x||''); });
         }
       } catch(e) {}
       return Array(MAX_EMP).fill('');
@@ -2048,64 +1840,25 @@
     }
 
     function saveData(){
-      function doSaveAndLock(){
-        markUserEdited();
-        savePeriod({ silent: true });
-        setMonthLocked(currentYear, currentMonth, true);
-        applyLockState();
-        try {
-          const sk = storageKey(currentYear, currentMonth);
-          const val = localStorage.getItem(sk);
-          if(val){
-            if(fbReady){
-              // force set bypass score only if we have real attendance data
-              const office = getOfficeId();
-              if(office && periodFillScore(val) > 0){
-                fbDb.collection('offices').doc(office).collection('data').doc(sk)
-                  .set({ v: val, t: Date.now() }, { merge: true })
-                  .catch(function(e){ console.error(e); queuePendingPush(sk); });
-              }
-              afterLocalWrite(lockKey(currentYear, currentMonth));
-            } else {
-              queuePendingPush(sk);
-              queuePendingPush(lockKey(currentYear, currentMonth));
-            }
-          }
-        } catch(e) { console.error(e); }
-        showStatus('Saved & Locked!' + (fbReady ? ' (+ cloud)' : ' (local — net aate hi sync)'));
-      }
       if(isMonthLocked(currentYear, currentMonth)){
-        const stored = localStorage.getItem(passKey());
-        if(!stored){
-          if(confirm('Month LOCKED hai. Unlock karke save karein?')){
-            setMonthLocked(currentYear, currentMonth, false);
-            applyLockState();
-            doSaveAndLock();
-          }
-          return;
-        }
-        askPassword('Locked hai — save ke liye password:', stored, function(){
-          setMonthLocked(currentYear, currentMonth, false);
-          applyLockState();
-          doSaveAndLock();
-        }, function(){
-          showStatus('Save cancel — pehle Unlock karo', true);
-        });
+        showStatus('Month LOCKED hai. Pehle Unlock karo.', true);
         return;
       }
-      doSaveAndLock();
+      savePeriod();
+      setMonthLocked(currentYear, currentMonth, true);
+      applyLockState();
+      showStatus('Saved & Locked!');
     }
 
     // ----- Rates tab -----
     function renderRates(){
-      syncMaxEmp();
       const y = parseInt(document.getElementById('rateYear').value);
       const m = parseInt(document.getElementById('rateMonth').value);
       const rates = loadRatesFor(y, m);
       const emps = getMasterEmployees();
       let html = '';
       for(let i=0; i<MAX_EMP; i++){
-        const emp = emps[i] || emptyEmployee();
+        const emp = emps[i];
         html += '<tr><td>'+(i+1)+'</td><td>'+esc(emp.code)+'</td><td>'+esc(emp.name)+'</td>';
         html += '<td><input type="number" id="rate_'+i+'" value="'+rates[i]+'" min="0" step="1"></td></tr>';
       }
@@ -2242,7 +1995,6 @@
     // ----- Year Summary: employee-wise month H/L/A -----
     // Only Attendance tab values (or saved for current period). Empty = blank. No fake default names.
     function getMasterEmployees(){
-      syncMaxEmp();
       const list = [];
       for(let i=0; i<MAX_EMP; i++){
         const nameEl = document.getElementById('name_'+i);
@@ -2262,41 +2014,40 @@
       let empMonthHtml = '';
       const empYearTotals = [];
 
-      // CODE-based — same name different code = separate; slot change OK
-      const codeOrder = []; // [{code, name, firstMonth}]
-      const codeSeen = {};
+      // Poore saal me jitne bhi alag-alag naam kisi bhi month me kisi bhi slot me aaye hon, sabko collect karo.
+      // Naam-based matching isliye taaki agar beech mahine me employee badal jaye (jaise slot me AJEET → SHIFT),
+      // to dono ka calculation kabhi merge na ho — har naam ka apna alag total bane.
+      const nameOrder = []; // [{key, code, name, firstMonth}]
+      const nameSeen = {};
       for(let m=0; m<12; m++){
         const period = loadPeriod(y, m);
-        const emps = (period.employees && period.employees.length) ? ensureEmpArray(period.employees, Math.max(MAX_EMP, period.employees.length)) : ensureEmpArray(defaultEmployees, MAX_EMP);
-        emps.forEach(function(e){
-          const code = String(e && e.code || '').trim();
-          if(!code) return;
-          const key = empCodeKey(code);
-          if(!codeSeen[key]){
-            codeSeen[key] = true;
-            codeOrder.push({ code: code, name: String(e.name||'').trim(), firstMonth: m });
-          } else {
-            const nm = String(e.name||'').trim();
-            if(nm){
-              for(let i=0; i<codeOrder.length; i++){
-                if(empCodeKey(codeOrder[i].code) === key && nm) codeOrder[i].name = nm;
-              }
-            }
+        const emps = (period.employees && period.employees.length === MAX_EMP) ? period.employees : defaultEmployees;
+        emps.forEach(e=>{
+          const nm = (e && e.name) ? String(e.name).trim() : '';
+          if(!nm) return;
+          const key = nm.toUpperCase();
+          if(!nameSeen[key]){
+            nameSeen[key] = true;
+            nameOrder.push({ key: key, code: (e.code||'').trim(), name: nm, firstMonth: m });
           }
         });
       }
-      codeOrder.sort(function(a,b){ return a.firstMonth - b.firstMonth; });
+      nameOrder.sort((a,b) => a.firstMonth - b.firstMonth);
 
-      codeOrder.forEach(function(entry){
+      nameOrder.forEach(entry=>{
         let rows = '';
         let eh=0, el=0, ea=0, epp=0, esal=0;
         let anyMonth = false;
 
         for(let m=0; m<12; m++){
           const period = loadPeriod(y, m);
-          const periodEmployees = (period.employees && period.employees.length) ? ensureEmpArray(period.employees, Math.max(MAX_EMP, period.employees.length)) : ensureEmpArray(defaultEmployees, MAX_EMP);
-          const idx = findEmpIndexByCode(periodEmployees, entry.code);
-          if(idx === -1) continue;
+          const periodEmployees = (period.employees && period.employees.length === MAX_EMP) ? period.employees : defaultEmployees;
+          let idx = -1;
+          for(let k=0; k<periodEmployees.length; k++){
+            const nm = (periodEmployees[k] && periodEmployees[k].name) ? String(periodEmployees[k].name).trim().toUpperCase() : '';
+            if(nm === entry.key){ idx = k; break; }
+          }
+          if(idx === -1) continue; // is month me ye employee tha hi nahi — row skip
 
           const days = getDaysInMonth(y, m);
           const rates = loadRatesFor(y, m);
@@ -2320,18 +2071,18 @@
       });
 
       if(!empMonthHtml){
-        empMonthHtml = '<p class="hint">Koi employee CODE nahi hai. Pehle Attendance tab me Code + Name likho + Save.</p>';
+        empMonthHtml = '<p class="hint">Koi employee name nahi hai. Pehle Attendance tab me name likho + Save.</p>';
       }
       document.getElementById('empMonthBox').innerHTML = empMonthHtml;
 
       let eHtml = '<table class="summary"><thead><tr><th>Code</th><th>Name</th><th>H</th><th>L</th><th>A</th><th>PP</th><th>Total Salary (Rs)</th></tr></thead><tbody>';
       let grand = 0;
       if(empYearTotals.length === 0){
-        eHtml += '<tr><td colspan="7">No employees with Code</td></tr>';
+        eHtml += '<tr><td colspan="7">No named employees</td></tr>';
       } else {
         let topSal = -1;
-        empYearTotals.forEach(function(e){ if(e.salary > topSal) topSal = e.salary; });
-        empYearTotals.forEach(function(e){
+        empYearTotals.forEach(e => { if(e.salary > topSal) topSal = e.salary; });
+        empYearTotals.forEach(e => {
           const top = (e.salary === topSal && topSal > 0) ? ' class="row-top-salary"' : '';
           eHtml += '<tr'+top+'><td>'+esc(e.code)+'</td><td class="name">'+esc(e.name)+'</td><td>'+e.h+'</td><td>'+e.l+'</td><td>'+e.a+'</td><td>'+e.pp+'</td><td><b>'+e.salary.toLocaleString('en-IN')+'</b></td></tr>';
           grand += e.salary;
@@ -2356,20 +2107,26 @@
       if(startAbs > endAbs){ const tmp = startAbs; startAbs = endAbs; endAbs = tmp; }
 
       const masterEmps = collectAllKnownEmployees();
-      const targets = (empFilter === 'all') ? masterEmps : masterEmps.filter(function(e){ return empCodeKey(e.code) === empCodeKey(empFilter); });
+      const targets = (empFilter === 'all') ? masterEmps : masterEmps.filter(e => e.name.trim().toUpperCase() === empFilter.toUpperCase());
 
       const totals = []; // { code, name, a, l, salary, monthly:[{y,m,a,l,salary}] }
-      targets.forEach(function(target){
+      targets.forEach(target=>{
+        const targetNameUpper = target.name.trim().toUpperCase();
         let ea = 0, el = 0, esal = 0;
         const monthly = [];
         for(let abs = startAbs; abs <= endAbs; abs++){
           const y = Math.floor(abs/12);
           const m = abs % 12;
           const period = loadPeriod(y, m);
-          const periodEmployees = (period.employees && period.employees.length) ? ensureEmpArray(period.employees, Math.max(MAX_EMP, period.employees.length)) : ensureEmpArray(defaultEmployees, MAX_EMP);
-          // Match by unique CODE (slot change / same name OK)
-          const idx = findEmpIndexByCode(periodEmployees, target.code);
-          if(idx === -1) continue;
+          const periodEmployees = (period.employees && period.employees.length === MAX_EMP) ? period.employees : defaultEmployees;
+          // Match by NAME for this specific period, not by fixed index —
+          // isse purane months me index alag hone par bhi total sahi aayega.
+          let idx = -1;
+          for(let k=0; k<periodEmployees.length; k++){
+            const nm = (periodEmployees[k] && periodEmployees[k].name) ? String(periodEmployees[k].name).trim().toUpperCase() : '';
+            if(nm === targetNameUpper){ idx = k; break; }
+          }
+          if(idx === -1) continue; // is period me ye employee naam se maujood nahi tha
           const days = getDaysInMonth(y, m);
           const rates = loadRatesFor(y, m);
           const att = (period.attendance && period.attendance[idx]) ? period.attendance[idx] : {};
@@ -3047,28 +2804,14 @@
         showStatus('apiKey, projectId, appId zaroori hain', true);
         return;
       }
-      // Truncated paste detect (common mobile mistake)
-      if(cfg.apiKey.indexOf('AIza') === 0 && cfg.apiKey.length < 30){
-        showStatus('apiKey adhoora lag raha hai — Firebase se poora copy-paste karo', true);
-        document.getElementById('fbStatus').textContent = 'apiKey incomplete (length ' + cfg.apiKey.length + ')';
-        return;
-      }
-      if(cfg.appId.indexOf(':web:') >= 0 && cfg.appId.length < 25){
-        showStatus('appId adhoora lag raha hai — poora paste karo', true);
-        document.getElementById('fbStatus').textContent = 'appId incomplete';
-        return;
-      }
       if(!cfg.authDomain) cfg.authDomain = cfg.projectId + '.firebaseapp.com';
       localStorage.setItem(FB_OFFICE_KEY, office);
       localStorage.setItem(FB_CFG_KEY, JSON.stringify(cfg));
       document.getElementById('fbStatus').textContent = 'Saved. Connecting…';
-      // Force re-init with new config
-      window._fbForceReinit = true;
       initFirebaseSync().then(function(ok){
         document.getElementById('fbStatus').textContent = ok
           ? 'Connected! Devices same Office ID se sync hongi.'
-          : ('Connect fail: ' + (window._lastFbError || 'config / rules / internet check karo'));
-        if(!ok) showStatus('Connect fail: ' + (window._lastFbError || 'dekh lo'), true);
+          : 'Connect fail — config / rules check karo (console me error).';
       });
     }
 
@@ -3085,41 +2828,27 @@
       if(!key) return false;
       // sync attendance, rates, locks — not firebase config itself
       if(key === FB_CFG_KEY || key === FB_OFFICE_KEY) return false;
-      if(key === empCountKey()) return true;
       return key.indexOf('att_') === 0;
     }
 
     async function initFirebaseSync(){
-      window._lastFbError = '';
       const cfg = getFirebaseConfig();
       const office = getOfficeId();
       if(!cfg || !office){
-        window._lastFbError = 'Office ID / Firebase config missing';
         setSyncUI('Off — Settings me Firebase setup karo', false);
         return false;
       }
       if(typeof firebase === 'undefined'){
-        window._lastFbError = 'Firebase SDK load nahi hua — internet ON karke page refresh karo';
         setSyncUI('Firebase SDK load nahi hua (internet?)', false);
         return false;
       }
       try {
         if(fbUnsub){ try{ fbUnsub(); }catch(e){} fbUnsub = null; }
-        const want = (cfg.apiKey||'') + '|' + (cfg.projectId||'') + '|' + (cfg.appId||'');
         if(firebase.apps && firebase.apps.length){
-          const cur = firebase.apps[0];
-          const o = cur.options || {};
-          const have = (o.apiKey||'') + '|' + (o.projectId||'') + '|' + (o.appId||'');
-          if(window._fbForceReinit || have !== want){
-            try { await cur.delete(); } catch(e) {}
-            fbApp = firebase.initializeApp(cfg);
-          } else {
-            fbApp = cur;
-          }
+          fbApp = firebase.apps[0];
         } else {
           fbApp = firebase.initializeApp(cfg);
         }
-        window._fbForceReinit = false;
         fbDb = firebase.firestore();
         try {
           await fbDb.enablePersistence({ synchronizeTabs: true });
@@ -3128,15 +2857,6 @@
         }
         // Live listener for whole office data
         const col = fbDb.collection('offices').doc(office).collection('data');
-        // Permission / rules test (1 read)
-        try {
-          await col.limit(1).get();
-        } catch(pe){
-          window._lastFbError = (pe && pe.message) ? pe.message : String(pe);
-          setSyncUI('Rules/permission: ' + window._lastFbError, false);
-          fbReady = false;
-          return false;
-        }
         fbUnsub = col.onSnapshot(function(snap){
           if(!snap) return;
           let changed = false;
@@ -3157,7 +2877,7 @@
               const localVal = localStorage.getItem(key);
               if(localVal === val) return;
 
-              // Attendance: richer data jeete (names-only local full remote ko block nahi kare)
+              // Attendance period: empty remote must NOT wipe filled local
               if(isAttendancePeriodKey(key)){
                 const rScore = periodFillScore(val);
                 const lScore = periodFillScore(localVal);
@@ -3166,12 +2886,12 @@
                   if(localVal){ const lp = JSON.parse(localVal); localT = Number(lp._updatedAt)||0; }
                 } catch(e){}
                 const remoteT = Number(payload.t)||0;
-                // local richer → cloud ke kam data se mat mitao
-                if(lScore > rScore) return;
-                // same score: naya remote tabhi
-                if(lScore === rScore && lScore > 0 && remoteT <= localT) return;
-                // remote empty, local has something
+                // remote empty, local has data → skip
                 if(rScore === 0 && lScore > 0) return;
+                // local richer and same/newer time → keep local
+                if(lScore > rScore && localT >= remoteT) return;
+                // local newer timestamp and has any data → keep local
+                if(localT > remoteT && lScore > 0) return;
               }
 
               localStorage.setItem(key, val);
@@ -3205,94 +2925,10 @@
         return true;
       } catch(err){
         console.error(err);
-        window._lastFbError = (err && err.message) ? err.message : String(err);
-        setSyncUI('Fail: ' + window._lastFbError, false);
+        setSyncUI('Fail: ' + (err.message || err), false);
         fbReady = false;
         return false;
       }
-    }
-
-
-    function pendingPushKey(){ return 'att_pending_push_keys'; }
-    function queuePendingPush(key){
-      try {
-        let arr = [];
-        const raw = localStorage.getItem(pendingPushKey());
-        if(raw) arr = JSON.parse(raw) || [];
-        if(arr.indexOf(key) < 0) arr.push(key);
-        localStorage.setItem(pendingPushKey(), JSON.stringify(arr));
-      } catch(e) {}
-    }
-    function flushPendingPushes(){
-      if(!fbReady || !fbDb) return Promise.resolve();
-      let arr = [];
-      try {
-        const raw = localStorage.getItem(pendingPushKey());
-        if(raw) arr = JSON.parse(raw) || [];
-      } catch(e) {}
-      if(!arr.length) return Promise.resolve();
-      const left = [];
-      const ops = arr.map(function(key){
-        const val = localStorage.getItem(key);
-        if(val === null) return Promise.resolve();
-        return cloudPushKey(key, val).then(function(r){
-          // if skipped null, still clear pending for empty skips; keep if network error
-        }).catch(function(){ left.push(key); });
-      });
-      return Promise.all(ops).then(function(){
-        try { localStorage.setItem(pendingPushKey(), JSON.stringify(left)); } catch(e) {}
-      });
-    }
-    function onAppOnline(){
-      if(!fbReady || !fbDb) return;
-      setSyncUI('Online — sync…', true);
-      flushPendingPushes().then(function(){
-        return manualCloudPullQuiet();
-      }).then(function(){
-        setSyncUI('On · Office: ' + (getOfficeId()||'') + ' · live', true);
-        showStatus('Net wapas — data sync ho gaya');
-      }).catch(function(e){
-        console.error(e);
-      });
-    }
-    function manualCloudPullQuiet(){
-      if(!fbReady || !fbDb) return Promise.resolve();
-      const office = getOfficeId();
-      return fbDb.collection('offices').doc(office).collection('data').get()
-        .then(function(snap){
-          syncingFromCloud = true;
-          let touchCurrent = false;
-          try {
-            snap.forEach(function(doc){
-              const key = doc.id;
-              if(!isSyncableKey(key)) return;
-              const payload = doc.data();
-              if(!payload || typeof payload.v === 'undefined') return;
-              const val = String(payload.v);
-              const localVal = localStorage.getItem(key);
-              if(localVal === val) return;
-              if(isAttendancePeriodKey(key)){
-                const rScore = periodFillScore(val);
-                const lScore = periodFillScore(localVal);
-                let localT = 0;
-                try { if(localVal) localT = Number(JSON.parse(localVal)._updatedAt)||0; } catch(e){}
-                const remoteT = Number(payload.t)||0;
-                if(lScore > rScore) return;
-                if(lScore === rScore && lScore > 0 && remoteT <= localT) return;
-                if(rScore === 0 && lScore > 0) return;
-              }
-              localStorage.setItem(key, val);
-              if(key === storageKey(currentYear, currentMonth) || key === ratesKey(currentYear, currentMonth) || key === lockKey(currentYear, currentMonth)){
-                touchCurrent = true;
-              }
-            });
-          } finally { syncingFromCloud = false; }
-          if(touchCurrent){
-            data = loadPeriod(currentYear, currentMonth);
-            if(typeof renderTablePreserveFocus === 'function') renderTablePreserveFocus();
-            else renderTable();
-          }
-        });
     }
 
     function cloudPushKey(key, value){
@@ -3303,41 +2939,32 @@
       const valStr = value == null ? '' : String(value);
       const ref = fbDb.collection('offices').doc(office).collection('data').doc(key);
 
-      // Attendance: richer data hamesha jeete — names-only / khali kabhi full month ko nahi mitaayega
+      // Attendance: kabhi empty local se filled cloud mat mitao
       if(isAttendancePeriodKey(key)){
         const lScore = periodFillScore(valStr);
-        let localT = 0;
-        try { localT = Number(JSON.parse(valStr)._updatedAt)||0; } catch(e){}
         return ref.get().then(function(doc){
           if(doc.exists){
             const remote = doc.data() || {};
             const rScore = periodFillScore(remote.v);
-            const remoteT = Number(remote.t)||0;
-            // cloud richer → local push mat karo
-            if(rScore > lScore){
-              console.warn('Skip sparser push over richer cloud', key, lScore, rScore);
-              return null;
-            }
-            // same fill: sirf tab push jab local naya ho
-            if(rScore === lScore && rScore > 0 && remoteT > localT){
-              console.warn('Skip older same-score push', key);
-              return null;
-            }
-            // local empty, cloud has data
             if(lScore === 0 && rScore > 0){
-              console.warn('Skip empty push', key);
-              return null;
+              console.warn('Skip empty push over filled cloud', key);
+              return;
+            }
+            // agar remote zyada filled hai aur naya bhi hai, empty/sparser skip
+            let localT = 0;
+            try { localT = Number(JSON.parse(valStr)._updatedAt)||0; } catch(e){}
+            const remoteT = Number(remote.t)||0;
+            if(rScore > lScore && remoteT > localT){
+              console.warn('Skip sparser push', key);
+              return;
             }
           }
           return ref.set({ v: valStr, t: Date.now() }, { merge: true });
-        }).catch(function(e){
-          console.error('cloud push', key, e);
-          queuePendingPush(key);
-        });
+        }).catch(function(e){ console.error('cloud push', key, e); });
       }
 
       return ref.set({ v: valStr, t: Date.now() }, { merge: true })
-        .catch(function(e){ console.error('cloud push', key, e); queuePendingPush(key); });
+        .catch(function(e){ console.error('cloud push', key, e); });
     }
 
     function cloudPushAllLocal(){
@@ -3370,10 +2997,26 @@
       if(!fbReady || !fbDb){ showStatus('Pehle Settings me Firebase connect karo', true); return; }
       const office = getOfficeId();
       setSyncUI('Pulling…', true);
-      manualCloudPullQuiet().then(function(){
-        showStatus('Cloud se pull complete');
-        setSyncUI('On · Office: ' + office + ' · pulled', true);
-      })
+      fbDb.collection('offices').doc(office).collection('data').get()
+        .then(function(snap){
+          syncingFromCloud = true;
+          let n = 0;
+          try {
+            snap.forEach(function(doc){
+              const key = doc.id;
+              if(!isSyncableKey(key)) return;
+              const payload = doc.data();
+              if(payload && typeof payload.v !== 'undefined'){
+                localStorage.setItem(key, String(payload.v));
+                n++;
+              }
+            });
+          } finally { syncingFromCloud = false; }
+          data = loadPeriod(currentYear, currentMonth);
+          renderTable();
+          showStatus('Cloud se pull: ' + n + ' items');
+          setSyncUI('On · Office: ' + office + ' · pulled', true);
+        })
         .catch(function(e){
           showStatus('Pull fail: ' + e.message, true);
         });
@@ -3390,14 +3033,9 @@
     // Init
     initSelectors();
     try { loadFirebaseForm(); } catch(e) {}
-    syncMaxEmp();
     data = loadPeriod(currentYear, currentMonth);
     renderTable();
     try { initFirebaseSync(); } catch(e) { console.error(e); }
-    try {
-      window.addEventListener('online', function(){ try { onAppOnline(); } catch(e) {} });
-      if(navigator.onLine && fbReady){ setTimeout(function(){ try { flushPendingPushes(); } catch(e) {} }, 2000); }
-    } catch(e) {}
     try { autoFillTodayPresent(false); } catch(e) {}
     try {
       let startTab = 'att';
