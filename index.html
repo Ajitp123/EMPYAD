@@ -375,7 +375,7 @@
         </div>
         <div class="row">
           <label style="min-width:90px;">apiKey:</label>
-          <input type="text" id="fbApiKey" placeholder="AIza..." style="flex:1;">
+          <input type="text" id="fbApiKey" placeholder="AIza... (poora paste karo)" style="flex:1;font-family:monospace;font-size:0.75rem;" autocomplete="off" spellcheck="false">
         </div>
         <div class="row">
           <label style="min-width:90px;">authDomain:</label>
@@ -387,7 +387,7 @@
         </div>
         <div class="row">
           <label style="min-width:90px;">appId:</label>
-          <input type="text" id="fbAppId" placeholder="1:xxx:web:xxx" style="flex:1;">
+          <input type="text" id="fbAppId" placeholder="1:xxx:web:xxx (poora paste karo)" style="flex:1;font-family:monospace;font-size:0.75rem;" autocomplete="off" spellcheck="false">
         </div>
         <div class="row">
           <button class="btn btn-success" onclick="saveFirebaseSettings()">Save & Connect Sync</button>
@@ -868,15 +868,22 @@
 
     function unlockMonth(){
       const stored = localStorage.getItem(passKey());
+      function doUnlock(){
+        setMonthLocked(currentYear, currentMonth, false);
+        applyLockState();
+        markUserEdited();
+        showStatus('Unlocked — ab change kar sakte ho. Save ke baad phir lock ho jayega.');
+        setTimeout(function(){ focusFirstEmptyCell(); }, 50);
+      }
       if(!stored){
-        showStatus('Pehle Settings me password set karo', true);
+        // Password set nahi — phir bhi unlock allow (warna mobile pe atak jata hai)
+        if(confirm('Password set nahi hai. Month unlock karein?')) doUnlock();
         return;
       }
       askPassword('Unlock ke liye password:', stored, function(){
-        setMonthLocked(currentYear, currentMonth, false);
-        applyLockState();
-        showStatus('Unlocked — ab change kar sakte ho. Save ke baad phir lock ho jayega.');
-        setTimeout(function(){ focusFirstEmptyCell(); }, 50);
+        doUnlock();
+      }, function(){
+        showStatus('Unlock cancel — galat password ya band kiya', true);
       });
     }
 
@@ -1840,14 +1847,52 @@
     }
 
     function saveData(){
+      function doSaveAndLock(){
+        markUserEdited();
+        savePeriod({ silent: true });
+        setMonthLocked(currentYear, currentMonth, true);
+        applyLockState();
+        try {
+          const sk = storageKey(currentYear, currentMonth);
+          const val = localStorage.getItem(sk);
+          if(val){
+            if(fbReady){
+              // force set bypass score only if we have real attendance data
+              const office = getOfficeId();
+              if(office && periodFillScore(val) > 0){
+                fbDb.collection('offices').doc(office).collection('data').doc(sk)
+                  .set({ v: val, t: Date.now() }, { merge: true })
+                  .catch(function(e){ console.error(e); queuePendingPush(sk); });
+              }
+              afterLocalWrite(lockKey(currentYear, currentMonth));
+            } else {
+              queuePendingPush(sk);
+              queuePendingPush(lockKey(currentYear, currentMonth));
+            }
+          }
+        } catch(e) { console.error(e); }
+        showStatus('Saved & Locked!' + (fbReady ? ' (+ cloud)' : ' (local — net aate hi sync)'));
+      }
       if(isMonthLocked(currentYear, currentMonth)){
-        showStatus('Month LOCKED hai. Pehle Unlock karo.', true);
+        const stored = localStorage.getItem(passKey());
+        if(!stored){
+          if(confirm('Month LOCKED hai. Unlock karke save karein?')){
+            setMonthLocked(currentYear, currentMonth, false);
+            applyLockState();
+            doSaveAndLock();
+          }
+          return;
+        }
+        askPassword('Locked hai — save ke liye password:', stored, function(){
+          setMonthLocked(currentYear, currentMonth, false);
+          applyLockState();
+          doSaveAndLock();
+        }, function(){
+          showStatus('Save cancel — pehle Unlock karo', true);
+        });
         return;
       }
-      savePeriod();
-      setMonthLocked(currentYear, currentMonth, true);
-      applyLockState();
-      showStatus('Saved & Locked!');
+      doSaveAndLock();
     }
 
     // ----- Rates tab -----
@@ -2804,14 +2849,28 @@
         showStatus('apiKey, projectId, appId zaroori hain', true);
         return;
       }
+      // Truncated paste detect (common mobile mistake)
+      if(cfg.apiKey.indexOf('AIza') === 0 && cfg.apiKey.length < 30){
+        showStatus('apiKey adhoora lag raha hai — Firebase se poora copy-paste karo', true);
+        document.getElementById('fbStatus').textContent = 'apiKey incomplete (length ' + cfg.apiKey.length + ')';
+        return;
+      }
+      if(cfg.appId.indexOf(':web:') >= 0 && cfg.appId.length < 25){
+        showStatus('appId adhoora lag raha hai — poora paste karo', true);
+        document.getElementById('fbStatus').textContent = 'appId incomplete';
+        return;
+      }
       if(!cfg.authDomain) cfg.authDomain = cfg.projectId + '.firebaseapp.com';
       localStorage.setItem(FB_OFFICE_KEY, office);
       localStorage.setItem(FB_CFG_KEY, JSON.stringify(cfg));
       document.getElementById('fbStatus').textContent = 'Saved. Connecting…';
+      // Force re-init with new config
+      window._fbForceReinit = true;
       initFirebaseSync().then(function(ok){
         document.getElementById('fbStatus').textContent = ok
           ? 'Connected! Devices same Office ID se sync hongi.'
-          : 'Connect fail — config / rules check karo (console me error).';
+          : ('Connect fail: ' + (window._lastFbError || 'config / rules / internet check karo'));
+        if(!ok) showStatus('Connect fail: ' + (window._lastFbError || 'dekh lo'), true);
       });
     }
 
@@ -2832,23 +2891,36 @@
     }
 
     async function initFirebaseSync(){
+      window._lastFbError = '';
       const cfg = getFirebaseConfig();
       const office = getOfficeId();
       if(!cfg || !office){
+        window._lastFbError = 'Office ID / Firebase config missing';
         setSyncUI('Off — Settings me Firebase setup karo', false);
         return false;
       }
       if(typeof firebase === 'undefined'){
+        window._lastFbError = 'Firebase SDK load nahi hua — internet ON karke page refresh karo';
         setSyncUI('Firebase SDK load nahi hua (internet?)', false);
         return false;
       }
       try {
         if(fbUnsub){ try{ fbUnsub(); }catch(e){} fbUnsub = null; }
+        const want = (cfg.apiKey||'') + '|' + (cfg.projectId||'') + '|' + (cfg.appId||'');
         if(firebase.apps && firebase.apps.length){
-          fbApp = firebase.apps[0];
+          const cur = firebase.apps[0];
+          const o = cur.options || {};
+          const have = (o.apiKey||'') + '|' + (o.projectId||'') + '|' + (o.appId||'');
+          if(window._fbForceReinit || have !== want){
+            try { await cur.delete(); } catch(e) {}
+            fbApp = firebase.initializeApp(cfg);
+          } else {
+            fbApp = cur;
+          }
         } else {
           fbApp = firebase.initializeApp(cfg);
         }
+        window._fbForceReinit = false;
         fbDb = firebase.firestore();
         try {
           await fbDb.enablePersistence({ synchronizeTabs: true });
@@ -2857,6 +2929,15 @@
         }
         // Live listener for whole office data
         const col = fbDb.collection('offices').doc(office).collection('data');
+        // Permission / rules test (1 read)
+        try {
+          await col.limit(1).get();
+        } catch(pe){
+          window._lastFbError = (pe && pe.message) ? pe.message : String(pe);
+          setSyncUI('Rules/permission: ' + window._lastFbError, false);
+          fbReady = false;
+          return false;
+        }
         fbUnsub = col.onSnapshot(function(snap){
           if(!snap) return;
           let changed = false;
@@ -2877,7 +2958,7 @@
               const localVal = localStorage.getItem(key);
               if(localVal === val) return;
 
-              // Attendance period: empty remote must NOT wipe filled local
+              // Attendance: richer data jeete (names-only local full remote ko block nahi kare)
               if(isAttendancePeriodKey(key)){
                 const rScore = periodFillScore(val);
                 const lScore = periodFillScore(localVal);
@@ -2886,12 +2967,12 @@
                   if(localVal){ const lp = JSON.parse(localVal); localT = Number(lp._updatedAt)||0; }
                 } catch(e){}
                 const remoteT = Number(payload.t)||0;
-                // remote empty, local has data → skip
+                // local richer → cloud ke kam data se mat mitao
+                if(lScore > rScore) return;
+                // same score: naya remote tabhi
+                if(lScore === rScore && lScore > 0 && remoteT <= localT) return;
+                // remote empty, local has something
                 if(rScore === 0 && lScore > 0) return;
-                // local richer and same/newer time → keep local
-                if(lScore > rScore && localT >= remoteT) return;
-                // local newer timestamp and has any data → keep local
-                if(localT > remoteT && lScore > 0) return;
               }
 
               localStorage.setItem(key, val);
@@ -2925,10 +3006,94 @@
         return true;
       } catch(err){
         console.error(err);
-        setSyncUI('Fail: ' + (err.message || err), false);
+        window._lastFbError = (err && err.message) ? err.message : String(err);
+        setSyncUI('Fail: ' + window._lastFbError, false);
         fbReady = false;
         return false;
       }
+    }
+
+
+    function pendingPushKey(){ return 'att_pending_push_keys'; }
+    function queuePendingPush(key){
+      try {
+        let arr = [];
+        const raw = localStorage.getItem(pendingPushKey());
+        if(raw) arr = JSON.parse(raw) || [];
+        if(arr.indexOf(key) < 0) arr.push(key);
+        localStorage.setItem(pendingPushKey(), JSON.stringify(arr));
+      } catch(e) {}
+    }
+    function flushPendingPushes(){
+      if(!fbReady || !fbDb) return Promise.resolve();
+      let arr = [];
+      try {
+        const raw = localStorage.getItem(pendingPushKey());
+        if(raw) arr = JSON.parse(raw) || [];
+      } catch(e) {}
+      if(!arr.length) return Promise.resolve();
+      const left = [];
+      const ops = arr.map(function(key){
+        const val = localStorage.getItem(key);
+        if(val === null) return Promise.resolve();
+        return cloudPushKey(key, val).then(function(r){
+          // if skipped null, still clear pending for empty skips; keep if network error
+        }).catch(function(){ left.push(key); });
+      });
+      return Promise.all(ops).then(function(){
+        try { localStorage.setItem(pendingPushKey(), JSON.stringify(left)); } catch(e) {}
+      });
+    }
+    function onAppOnline(){
+      if(!fbReady || !fbDb) return;
+      setSyncUI('Online — sync…', true);
+      flushPendingPushes().then(function(){
+        return manualCloudPullQuiet();
+      }).then(function(){
+        setSyncUI('On · Office: ' + (getOfficeId()||'') + ' · live', true);
+        showStatus('Net wapas — data sync ho gaya');
+      }).catch(function(e){
+        console.error(e);
+      });
+    }
+    function manualCloudPullQuiet(){
+      if(!fbReady || !fbDb) return Promise.resolve();
+      const office = getOfficeId();
+      return fbDb.collection('offices').doc(office).collection('data').get()
+        .then(function(snap){
+          syncingFromCloud = true;
+          let touchCurrent = false;
+          try {
+            snap.forEach(function(doc){
+              const key = doc.id;
+              if(!isSyncableKey(key)) return;
+              const payload = doc.data();
+              if(!payload || typeof payload.v === 'undefined') return;
+              const val = String(payload.v);
+              const localVal = localStorage.getItem(key);
+              if(localVal === val) return;
+              if(isAttendancePeriodKey(key)){
+                const rScore = periodFillScore(val);
+                const lScore = periodFillScore(localVal);
+                let localT = 0;
+                try { if(localVal) localT = Number(JSON.parse(localVal)._updatedAt)||0; } catch(e){}
+                const remoteT = Number(payload.t)||0;
+                if(lScore > rScore) return;
+                if(lScore === rScore && lScore > 0 && remoteT <= localT) return;
+                if(rScore === 0 && lScore > 0) return;
+              }
+              localStorage.setItem(key, val);
+              if(key === storageKey(currentYear, currentMonth) || key === ratesKey(currentYear, currentMonth) || key === lockKey(currentYear, currentMonth)){
+                touchCurrent = true;
+              }
+            });
+          } finally { syncingFromCloud = false; }
+          if(touchCurrent){
+            data = loadPeriod(currentYear, currentMonth);
+            if(typeof renderTablePreserveFocus === 'function') renderTablePreserveFocus();
+            else renderTable();
+          }
+        });
     }
 
     function cloudPushKey(key, value){
@@ -2939,32 +3104,41 @@
       const valStr = value == null ? '' : String(value);
       const ref = fbDb.collection('offices').doc(office).collection('data').doc(key);
 
-      // Attendance: kabhi empty local se filled cloud mat mitao
+      // Attendance: richer data hamesha jeete — names-only / khali kabhi full month ko nahi mitaayega
       if(isAttendancePeriodKey(key)){
         const lScore = periodFillScore(valStr);
+        let localT = 0;
+        try { localT = Number(JSON.parse(valStr)._updatedAt)||0; } catch(e){}
         return ref.get().then(function(doc){
           if(doc.exists){
             const remote = doc.data() || {};
             const rScore = periodFillScore(remote.v);
-            if(lScore === 0 && rScore > 0){
-              console.warn('Skip empty push over filled cloud', key);
-              return;
-            }
-            // agar remote zyada filled hai aur naya bhi hai, empty/sparser skip
-            let localT = 0;
-            try { localT = Number(JSON.parse(valStr)._updatedAt)||0; } catch(e){}
             const remoteT = Number(remote.t)||0;
-            if(rScore > lScore && remoteT > localT){
-              console.warn('Skip sparser push', key);
-              return;
+            // cloud richer → local push mat karo
+            if(rScore > lScore){
+              console.warn('Skip sparser push over richer cloud', key, lScore, rScore);
+              return null;
+            }
+            // same fill: sirf tab push jab local naya ho
+            if(rScore === lScore && rScore > 0 && remoteT > localT){
+              console.warn('Skip older same-score push', key);
+              return null;
+            }
+            // local empty, cloud has data
+            if(lScore === 0 && rScore > 0){
+              console.warn('Skip empty push', key);
+              return null;
             }
           }
           return ref.set({ v: valStr, t: Date.now() }, { merge: true });
-        }).catch(function(e){ console.error('cloud push', key, e); });
+        }).catch(function(e){
+          console.error('cloud push', key, e);
+          queuePendingPush(key);
+        });
       }
 
       return ref.set({ v: valStr, t: Date.now() }, { merge: true })
-        .catch(function(e){ console.error('cloud push', key, e); });
+        .catch(function(e){ console.error('cloud push', key, e); queuePendingPush(key); });
     }
 
     function cloudPushAllLocal(){
@@ -2997,26 +3171,10 @@
       if(!fbReady || !fbDb){ showStatus('Pehle Settings me Firebase connect karo', true); return; }
       const office = getOfficeId();
       setSyncUI('Pulling…', true);
-      fbDb.collection('offices').doc(office).collection('data').get()
-        .then(function(snap){
-          syncingFromCloud = true;
-          let n = 0;
-          try {
-            snap.forEach(function(doc){
-              const key = doc.id;
-              if(!isSyncableKey(key)) return;
-              const payload = doc.data();
-              if(payload && typeof payload.v !== 'undefined'){
-                localStorage.setItem(key, String(payload.v));
-                n++;
-              }
-            });
-          } finally { syncingFromCloud = false; }
-          data = loadPeriod(currentYear, currentMonth);
-          renderTable();
-          showStatus('Cloud se pull: ' + n + ' items');
-          setSyncUI('On · Office: ' + office + ' · pulled', true);
-        })
+      manualCloudPullQuiet().then(function(){
+        showStatus('Cloud se pull complete');
+        setSyncUI('On · Office: ' + office + ' · pulled', true);
+      })
         .catch(function(e){
           showStatus('Pull fail: ' + e.message, true);
         });
@@ -3036,6 +3194,10 @@
     data = loadPeriod(currentYear, currentMonth);
     renderTable();
     try { initFirebaseSync(); } catch(e) { console.error(e); }
+    try {
+      window.addEventListener('online', function(){ try { onAppOnline(); } catch(e) {} });
+      if(navigator.onLine && fbReady){ setTimeout(function(){ try { flushPendingPushes(); } catch(e) {} }, 2000); }
+    } catch(e) {}
     try { autoFillTodayPresent(false); } catch(e) {}
     try {
       let startTab = 'att';
