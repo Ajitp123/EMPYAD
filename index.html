@@ -999,8 +999,8 @@
       const score = periodFillScore(period);
       localStorage.setItem(sk, json);
       data = period;
-      if(silent && score === 0){
-        // local empty — cloud ko touch mat karo
+      // Empty silent save without user edit → cloud mat touch (first load)
+      if(silent && score === 0 && !liveSyncEnabled){
         return;
       }
       afterLocalWrite(sk);
@@ -1026,7 +1026,7 @@
           if(!document.getElementById('code_0')) return;
           savePeriod({ silent: true });
         } catch(e) { console.error('live sync', e); }
-      }, 600);
+      }, 350);
     }
 
     function renderTablePreserveFocus(){
@@ -3365,26 +3365,24 @@
               const localVal = localStorage.getItem(key);
               if(localVal === val) return;
 
-              // Attendance: richer data jeete (names-only local full remote ko block nahi kare)
-              if(isAttendancePeriodKey(key)){
-                const rScore = periodFillScore(val);
-                const lScore = periodFillScore(localVal);
-                let localT = 0;
-                try {
-                  if(localVal){ const lp = JSON.parse(localVal); localT = Number(lp._updatedAt)||0; }
-                } catch(e){}
-                const remoteT = Number(payload.t)||0;
-                // local richer → cloud ke kam data se mat mitao
-                if(lScore > rScore) return;
-                // same score: naya remote tabhi
-                if(lScore === rScore && lScore > 0 && remoteT <= localT) return;
-                // remote empty, local has something
-                if(rScore === 0 && lScore > 0) return;
+              // Last-write-wins by timestamp (live sync reliable)
+              let localT = 0;
+              try {
+                if(localVal){
+                  const lp = JSON.parse(localVal);
+                  localT = Number(lp._updatedAt) || Number(payload && 0) || 0;
+                  if(!localT && payload) localT = 0;
+                }
+              } catch(e){}
+              const remoteT = Number(payload.t) || 0;
+              // local newer → remote ignore (humne abhi push kiya / type kar rahe)
+              if(localVal && localT && remoteT && remoteT < localT){
+                return;
               }
-
+              // same content already handled above
               localStorage.setItem(key, val);
               changed = true;
-              if(key === storageKey(currentYear, currentMonth) || key === ratesKey(currentYear, currentMonth) || key === lockKey(currentYear, currentMonth)){
+              if(key === storageKey(currentYear, currentMonth) || key === ratesKey(currentYear, currentMonth) || key === lockKey(currentYear, currentMonth) || key === empCountKey()){
                 touchCurrent = true;
               }
             });
@@ -3409,7 +3407,8 @@
           setSyncUI('Error: ' + (err.message || err), true);
         });
         fbReady = true;
-        setSyncUI('On · Office: ' + office, true);
+        liveSyncEnabled = true;
+        setSyncUI('On · Office: ' + office + ' · Realtime sync ✓', true);
         return true;
       } catch(err){
         console.error(err);
@@ -3479,18 +3478,12 @@
               const val = String(payload.v);
               const localVal = localStorage.getItem(key);
               if(localVal === val) return;
-              if(isAttendancePeriodKey(key)){
-                const rScore = periodFillScore(val);
-                const lScore = periodFillScore(localVal);
-                let localT = 0;
-                try { if(localVal) localT = Number(JSON.parse(localVal)._updatedAt)||0; } catch(e){}
-                const remoteT = Number(payload.t)||0;
-                if(lScore > rScore) return;
-                if(lScore === rScore && lScore > 0 && remoteT <= localT) return;
-                if(rScore === 0 && lScore > 0) return;
-              }
+              let localT = 0;
+              try { if(localVal) localT = Number(JSON.parse(localVal)._updatedAt)||0; } catch(e){}
+              const remoteT = Number(payload.t)||0;
+              if(localVal && localT && remoteT && remoteT < localT) return;
               localStorage.setItem(key, val);
-              if(key === storageKey(currentYear, currentMonth) || key === ratesKey(currentYear, currentMonth) || key === lockKey(currentYear, currentMonth)){
+              if(key === storageKey(currentYear, currentMonth) || key === ratesKey(currentYear, currentMonth) || key === lockKey(currentYear, currentMonth) || key === empCountKey()){
                 touchCurrent = true;
               }
             });
@@ -3511,40 +3504,36 @@
       const valStr = value == null ? '' : String(value);
       const ref = fbDb.collection('offices').doc(office).collection('data').doc(key);
 
-      // Attendance: richer data hamesha jeete — names-only / khali kabhi full month ko nahi mitaayega
+      // Last-write-wins: push if local is newer or equal; always push user edits
+      let localT = Date.now();
+      try {
+        if(valStr){
+          const lp = JSON.parse(valStr);
+          if(lp && lp._updatedAt) localT = Number(lp._updatedAt) || localT;
+        }
+      } catch(e){}
+      const doSet = function(){
+        return ref.set({ v: valStr, t: localT }, { merge: true });
+      };
       if(isAttendancePeriodKey(key)){
-        const lScore = periodFillScore(valStr);
-        let localT = 0;
-        try { localT = Number(JSON.parse(valStr)._updatedAt)||0; } catch(e){}
         return ref.get().then(function(doc){
           if(doc.exists){
             const remote = doc.data() || {};
-            const rScore = periodFillScore(remote.v);
-            const remoteT = Number(remote.t)||0;
-            // cloud richer → local push mat karo
-            if(rScore > lScore){
-              console.warn('Skip sparser push over richer cloud', key, lScore, rScore);
-              return null;
-            }
-            // same fill: sirf tab push jab local naya ho
-            if(rScore === lScore && rScore > 0 && remoteT > localT){
-              console.warn('Skip older same-score push', key);
-              return null;
-            }
-            // local empty, cloud has data
-            if(lScore === 0 && rScore > 0){
-              console.warn('Skip empty push', key);
+            const remoteT = Number(remote.t) || 0;
+            // Cloud clearly newer → skip overwrite (another device just wrote)
+            if(remoteT > localT + 50){
+              console.warn('Skip older local push', key, localT, remoteT);
               return null;
             }
           }
-          return ref.set({ v: valStr, t: Date.now() }, { merge: true });
+          return doSet();
         }).catch(function(e){
           console.error('cloud push', key, e);
           queuePendingPush(key);
         });
       }
 
-      return ref.set({ v: valStr, t: Date.now() }, { merge: true })
+      return doSet()
         .catch(function(e){ console.error('cloud push', key, e); queuePendingPush(key); });
     }
 
