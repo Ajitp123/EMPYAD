@@ -61,10 +61,10 @@
     table.att th.day-header { min-width: 18px; font-size: 0.78rem; font-weight: 700; padding: 4px 2px; }
     table.att thead tr:first-child th.day-header { font-size: 0.8rem; }
     table.att thead tr:nth-child(2) th.day-header { font-size: 0.72rem; }
-    table.att td.name-cell { text-align: left; padding: 2px 4px; width: 100px; min-width: 90px; max-width: 120px; background: #e6fffa; font-weight: 500; font-size: 0.68rem; vertical-align: middle; }
-    table.att td.code-cell { width: 48px; min-width: 44px; max-width: 52px; background: #ebf8ff; font-weight: 600; font-size: 0.72rem; vertical-align: middle; }
-    table.att td { vertical-align: middle; }
-    table.att td.day-cell { padding: 1px; }
+    table.att td.name-cell { text-align: left; padding: 2px 4px; width: 100px; min-width: 90px; max-width: 120px; background: #e6fffa; font-weight: 500; font-size: 0.68rem; vertical-align: middle; height: 38px; }
+    table.att td.code-cell { width: 48px; min-width: 44px; max-width: 52px; background: #ebf8ff; font-weight: 600; font-size: 0.72rem; vertical-align: middle; height: 38px; }
+    table.att td { vertical-align: middle; height: 38px; }
+    table.att td.day-cell { padding: 1px; height: 38px; }
     table.att td.desig-cell, table.att thead tr:first-child th:nth-child(3) { display: none; }
     table.att thead tr:first-child th:nth-child(3) { z-index: 3; }
     /* Code + Emp Name hamesha dikhte rahein, chahe jitna bhi side scroll karo — jaisa Excel me column freeze hota hai */
@@ -72,10 +72,10 @@
     table.att td.name-cell, table.att thead tr:first-child th:nth-child(2) { position: sticky; left: 44px; z-index: 1; }
     table.att thead tr:first-child th:nth-child(1), table.att thead tr:first-child th:nth-child(2) { z-index: 3; }
     table.att input.att-input {
-      width: 100%; min-width: 18px; max-width: 22px;
-      height: 100%; min-height: 22px;
+      width: 20px; min-width: 18px; max-width: 22px;
+      height: 34px; min-height: 34px;
       box-sizing: border-box; text-align: center;
-      border: 1px solid #cbd5e0; border-radius: 2px;
+      border: 1px solid #cbd5e0; border-radius: 3px;
       font-size: 0.7rem; font-weight: 700; padding: 0;
       vertical-align: middle; display: block; margin: 0 auto;
     }
@@ -86,10 +86,20 @@
       font-size: 0.72rem; font-weight: 500; padding: 1px 2px; font-family: inherit;
     }
     table.att textarea.name-input {
-      resize: none; overflow: hidden; line-height: 1.2;
-      min-height: 22px; white-space: pre-wrap; word-break: break-word;
+      resize: none; overflow: hidden; line-height: 1.15;
+      height: 34px; min-height: 34px; max-height: 34px;
+      white-space: pre-wrap; word-break: break-word;
       display: block;
     }
+    table.att input.code-input {
+      height: 34px; line-height: 34px;
+    }
+    .emp-name-twoline {
+      display: inline-block; line-height: 1.25; text-align: left;
+      white-space: normal;
+    }
+    .emp-name-twoline .fn { display: block; font-weight: 700; }
+    .emp-name-twoline .ln { display: block; font-weight: 600; font-size: 0.95em; opacity: 0.95; }
     table.att input.name-input:focus, table.att textarea.name-input:focus, table.att input.code-input:focus {
       border-color: #3182ce; background: #fff; outline: none;
     }
@@ -978,7 +988,7 @@
         const nameEl = document.getElementById('name_'+i);
         period.employees.push({
           code: codeEl ? codeEl.value.trim() : '',
-          name: nameEl ? nameEl.value.trim() : '',
+          name: nameEl ? storageNameFromDisplay(nameEl.value) : '',
           desig: 'COM.OP.'
         });
         period.attendance[i] = {};
@@ -1396,11 +1406,38 @@
     function getDaysInMonth(y,m){ return new Date(y, m+1, 0).getDate(); }
     function esc(s){ if(s===undefined||s===null) return ''; return String(s).replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
     function escTextarea(s){ if(s===undefined||s===null) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+
+    function splitNameTwoLine(name){
+      const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+      if(parts.length === 0) return { first: '', last: '' };
+      if(parts.length === 1) return { first: parts[0], last: '' };
+      return { first: parts[0], last: parts.slice(1).join(' ') };
+    }
+    function displayNameTwoLine(name){
+      const s = splitNameTwoLine(name);
+      if(!s.first) return '';
+      if(!s.last) return s.first;
+      return s.first + '\n' + s.last;
+    }
+    function storageNameFromDisplay(s){
+      return String(s || '').replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+    function htmlNameTwoLine(name){
+      const s = splitNameTwoLine(name);
+      if(!s.first) return '';
+      if(!s.last) return '<span class="emp-name-twoline"><span class="fn">'+esc(s.first)+'</span></span>';
+      return '<span class="emp-name-twoline"><span class="fn">'+esc(s.first)+'</span><span class="ln">'+esc(s.last)+'</span></span>';
+    }
+
+    function onNameInput(el){
+      // keep caret; normalize display to 2 lines after pause optional
+      refreshEmployeeSelectors();
+      scheduleLiveSync();
+    }
     function autoGrowName(el){
       if(!el) return;
-      el.style.height = 'auto';
-      el.style.height = Math.max(22, el.scrollHeight) + 'px';
-      try { syncRowHeight(el); } catch(e) {}
+      // fixed 2-line height — keep uniform with attendance boxes
+      el.style.height = '34px';
     }
     function syncRowHeight(nameEl){
       if(!nameEl || !nameEl.id) return;
@@ -1538,7 +1575,7 @@
 
         html += '<tr>';
         html += '<td class="code-cell"><input class="code-input" id="code_'+i+'" value="'+esc(emp.code)+'" maxlength="10" oninput="scheduleLiveSync()"></td>';
-        html += '<td class="name-cell"><textarea class="name-input" id="name_'+i+'" rows="1" oninput="autoGrowName(this);syncRowHeight(this);refreshEmployeeSelectors();scheduleLiveSync()">'+escTextarea(emp.name)+'</textarea></td>';
+        html += '<td class="name-cell"><textarea class="name-input" id="name_'+i+'" rows="2" oninput="onNameInput(this)">'+escTextarea(displayNameTwoLine(emp.name))+'</textarea></td>';
         html += '<td class="desig-cell">COM.OP.</td>';
         for(let d=1; d<=days; d++){
           const val = att[d] || '';
@@ -1677,7 +1714,7 @@
       for(let i=0; i<MAX_EMP; i++){
         const nameEl = document.getElementById('name_'+i);
         const codeEl = document.getElementById('code_'+i);
-        let liveName = nameEl ? nameEl.value.trim() : '';
+        let liveName = nameEl ? storageNameFromDisplay(nameEl.value) : '';
         let liveCode = codeEl ? codeEl.value.trim() : '';
         if(!liveName || !liveCode){
           const emp = (data.employees && data.employees[i]) ? data.employees[i] : (defaultEmployees[i] || emptyEmployee());
@@ -2407,7 +2444,7 @@
         const nameEl = document.getElementById('name_'+i);
         const codeEl = document.getElementById('code_'+i);
         let name = '', code = '';
-        if(nameEl) name = nameEl.value.trim();
+        if(nameEl) name = storageNameFromDisplay(nameEl.value);
         else if(data.employees && data.employees[i] && data.employees[i].name) name = String(data.employees[i].name).trim();
         if(codeEl) code = codeEl.value.trim();
         else if(data.employees && data.employees[i] && data.employees[i].code) code = String(data.employees[i].code).trim();
@@ -2435,20 +2472,20 @@
       const c = EMP_NAME_COLORS[Math.abs(h) % EMP_NAME_COLORS.length];
       return 'background:' + c.bg + ';color:' + c.fg + ';';
     }
-    function formatEmpTitle(code, name){
+        function formatEmpTitle(code, name){
       const cd = String(code || '').trim();
       const nm = String(name || '').trim();
       if(cd && nm){
-        return esc(cd) + ' — <span class="emp-name-badge" style="' + empColorStyle(cd, nm) + '">' + esc(nm) + '</span>';
+        return esc(cd) + ' — <span class="emp-name-badge" style="' + empColorStyle(cd, nm) + '">' + htmlNameTwoLine(nm) + '</span>';
       }
-      if(nm) return '<span class="emp-name-badge" style="' + empColorStyle('', nm) + '">' + esc(nm) + '</span>';
+      if(nm) return '<span class="emp-name-badge" style="' + empColorStyle('', nm) + '">' + htmlNameTwoLine(nm) + '</span>';
       if(cd) return esc(cd);
       return '';
     }
     function formatEmpNameCell(code, name){
       const nm = String(name || '').trim();
       if(!nm) return '';
-      return '<span class="emp-name-badge" style="' + empColorStyle(code, nm) + '">' + esc(nm) + '</span>';
+      return '<span class="emp-name-badge" style="' + empColorStyle(code, nm) + '">' + htmlNameTwoLine(nm) + '</span>';
     }
 
     function renderYearSummary(){
