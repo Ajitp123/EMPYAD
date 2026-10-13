@@ -2583,12 +2583,16 @@
       let html = '<p style="font-size:0.85rem;color:#4a5568;margin:0 0 10px 0;"><b>Range:</b> '
         + fromLabel + ' &nbsp;to&nbsp; ' + toLabel + '</p>';
       html += '<table class="summary"><thead><tr><th>Code</th><th>Name</th><th>Total A</th><th>Total L</th><th>A+L Total</th><th>Total Salary (Rs)</th></tr></thead><tbody>';
-      if(totals.length === 0){
-        html += '<tr><td colspan="6">Koi employee nahi mila. Pehle Attendance tab me name likho + Save.</td></tr>';
+      // A, L, A+L, salary sab zero → employee row hide
+      const visibleTotals = totals.filter(function(e){
+        return (e.a || 0) !== 0 || (e.l || 0) !== 0 || (e.salary || 0) !== 0;
+      });
+      if(visibleTotals.length === 0){
+        html += '<tr><td colspan="6">Is range me koi non-zero A / L / Salary nahi mila.</td></tr>';
       } else {
         let grand = 0;
         let grandAL = 0;
-        totals.forEach(e=>{
+        visibleTotals.forEach(function(e){
           const al = e.a + e.l;
           html += '<tr><td>'+esc(e.code)+'</td><td class="name">'+formatEmpNameCell(e.code, e.name)+'</td><td>'+e.a+'</td><td>'+e.l+'</td><td><b>'+al+'</b></td><td><b>'+e.salary.toLocaleString('en-IN')+'</b></td></tr>';
           grand += e.salary;
