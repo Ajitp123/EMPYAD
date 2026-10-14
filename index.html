@@ -220,7 +220,7 @@
       </div>
       <div id="loginAdminFields" style="display:none;">
         <label>Admin Password</label>
-        <input type="password" id="loginAdminPass" placeholder="Security tab password only" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+        <input type="password" id="loginAdminPass" placeholder="Admin login password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
         <label style="display:flex;align-items:center;gap:8px;font-weight:500;margin:4px 0 10px 0;cursor:pointer;">
           <input type="checkbox" id="loginRememberAdmin" style="width:auto;margin:0;" checked>
           Password is device pe save rakho
@@ -528,9 +528,24 @@
         <p id="empPinStatus" style="font-size:0.8rem;color:#276749;"></p>
       </div>
 
+
+      <div class="settings-box" id="adminPassBox">
+        <h3>🔑 Admin Login Password</h3>
+        <p style="font-size:0.85rem;color:#4a5568;">Sirf <b>Admin login</b> ke liye. 3 tabs (Rates/Backup/Settings) se <b>alag</b>.</p>
+        <p id="adminPassBadge" style="font-weight:700;"></p>
+        <div class="row" id="currentAdminPassRow" style="display:none;">
+          <input type="password" id="currentAdminPass" placeholder="Current Admin password" style="flex:1;">
+        </div>
+        <div class="row">
+          <input type="password" id="newAdminPass" placeholder="New Admin password" style="flex:1;">
+          <input type="password" id="confirmAdminPass" placeholder="Confirm" style="flex:1;">
+          <button class="btn btn-primary" onclick="setAdminPassword()">Set / Update Admin Password</button>
+        </div>
+        <p id="adminPassStatus" style="font-size:0.8rem;color:#276749;"></p>
+      </div>
       <div class="settings-box">
         <h3>🔒 Salary Rates / Backup / Settings — Tab Password</h3>
-        <p>Ye password sirf <b>Salary Rates</b>, <b>Backup</b> aur <b>Settings</b> — in 3 tabs me jaane ke liye chahiye. Ye "Clear Month" wale password se bilkul alag hai.</p>
+        <p>Ye password sirf <b>Salary Rates</b>, <b>Backup</b> aur <b>Settings</b> ke liye. <b>Admin login password se alag</b>. Admin login ke baad bhi ye 3 tabs password maangenge.</p>
         <p id="tabsPassBadge" style="font-weight:700;"></p>
         <div class="row" id="currentTabsPassRow" style="display:none;">
           <input type="password" id="currentTabsPass" placeholder="Current password (badalne ke liye zaroori)" style="flex:1;">
@@ -712,12 +727,12 @@
       // auto flag optional — code+pin / adminPass enough
       try {
         if(s.mode === 'admin' && s.adminPass != null && String(s.adminPass).length >= 0){
-          const storedTabs = localStorage.getItem(tabsPassKey());
-          if(storedTabs && String(s.adminPass) !== String(storedTabs)){
-            return false; // password changed
+          const storedAdmin = localStorage.getItem(adminPassKey());
+          if(storedAdmin && String(s.adminPass) !== String(storedAdmin)){
+            return false; // Admin password changed
           }
           setSession({ role: 'admin', at: Date.now() });
-          protectedUnlocked = true;
+          protectedUnlocked = false; // 3-tab still needs own password
           liveSyncEnabled = true;
           hideLoginOverlay();
           try { applyRolePermissions(); if(typeof renderTable==='function') renderTable(); markUserEdited(); } catch(e) {}
@@ -874,17 +889,17 @@
       if(err) err.textContent = '';
       if(loginMode === 'admin'){
         const pass = (document.getElementById('loginAdminPass')||{}).value || '';
-        const storedTabs = localStorage.getItem(tabsPassKey());
-        // SIRF Security tab wala password (3-tab password)
+        const storedAdmin = localStorage.getItem(adminPassKey());
+        // SIRF Admin login password (3-tab password se alag)
         let ok = false;
-        if(storedTabs){
-          ok = (pass === storedTabs);
+        if(storedAdmin){
+          ok = (pass === storedAdmin);
         } else {
-          // Pehli baar password set nahi — andar aao, Security me set karo
+          // Pehli baar Admin password set nahi — andar aao, Security me set karo
           ok = true;
         }
         if(!ok){
-          if(err) err.textContent = 'Galat Admin password (Security tab wala use karo)';
+          if(err) err.textContent = 'Galat Admin password (Security → Admin Login Password)';
           return;
         }
         const remA = document.getElementById('loginRememberAdmin');
@@ -895,10 +910,11 @@
           if(prev.mode === 'admin') clearSavedLogin();
         }
         setSession({ role: 'admin', at: Date.now() });
-        protectedUnlocked = true;
+        // 3-tab unlock NAHI — alag password maangega
+        protectedUnlocked = false;
         liveSyncEnabled = true;
         hideLoginOverlay();
-        showStatus('Admin login — sab edit + cloud sync ON');
+        showStatus('Admin login OK — 3 tabs ke liye alag password lagega');
         try { applyRolePermissions(); renderTable(); markUserEdited(); } catch(e) {}
         return;
       }
@@ -1019,7 +1035,8 @@
       try {
         const sess = getSession();
         if(sess && sess.role){
-          if(sess.role === 'admin') protectedUnlocked = true;
+          // Admin session != 3-tab unlock
+          protectedUnlocked = false;
           liveSyncEnabled = true;
           hideLoginOverlay();
           updateRoleBar();
@@ -1231,6 +1248,7 @@
     function ratesKey(y,m){ return 'att_rates_'+y+'_'+m; }
     function passKey(){ return 'att_clear_password'; }
     function tabsPassKey(){ return 'att_tabs_password'; }
+    function adminPassKey(){ return 'att_admin_password'; }
 
         function lockKey(y,m){ return 'att_lock_'+y+'_'+m; }
     function isMonthLocked(y,m){ return localStorage.getItem(lockKey(y,m)) === '1'; }
@@ -1732,15 +1750,21 @@
         return;
       }
 
-      // Salary Rates / Backup / Settings — password se protect (agar password set hai)
+      // 3 protected tabs chhod kar jao to dubara password maange
+      try {
+        if(PROTECTED_TABS.includes(currentTab) && !PROTECTED_TABS.includes(name)){
+          protectedUnlocked = false;
+        }
+      } catch(e) {}
+
+      // Salary Rates / Backup / Settings — 3-tab password (Admin login se alag)
       if(PROTECTED_TABS.includes(name) && !protectedUnlocked){
         const stored = localStorage.getItem(tabsPassKey());
         if(stored){
-          askPassword('Ye tab password protected hai:', stored, function(){
+          askPassword('3-Tab password (Rates / Backup / Settings):', stored, function(){
             protectedUnlocked = true;
             performSwitchTab(name, fromPopstate);
           }, function(){
-            // cancel — tab change mat karo
             if(fromPopstate){ try { history.replaceState({tab: currentTab}, '', '#tab='+currentTab); } catch(e) {} }
           });
           return;
@@ -1784,7 +1808,7 @@
         renderYearSummary();
       }
       if(name === 'totals'){ refreshTotalsEmpSelect(); renderGrandTotal(); }
-      if(name === 'security'){ try { renderEmpPinList(); } catch(e) {} }
+      if(name === 'security'){ try { renderEmpPinList(); updateAdminPassBadge(); updateTabsPassBadge(); } catch(e) {} }
       if(name === 'settings'){ try{ loadFirebaseForm(); }catch(e){} fillClearSelectors(); refreshClearPassBadge(); }
       if(name === 'backup') {
         const bs = document.getElementById('backupStatus');
@@ -3447,6 +3471,48 @@
       if(row) row.style.display = localStorage.getItem(passKey()) ? 'flex' : 'none';
     }
 
+    
+    function setAdminPassword(){
+      const existing = localStorage.getItem(adminPassKey());
+      const cur = (document.getElementById('currentAdminPass')||{}).value || '';
+      const p1 = (document.getElementById('newAdminPass')||{}).value || '';
+      const p2 = (document.getElementById('confirmAdminPass')||{}).value || '';
+      const st = document.getElementById('adminPassStatus');
+      if(existing && cur !== existing){
+        if(st){ st.textContent = 'Current Admin password galat'; st.style.color = '#c53030'; }
+        return;
+      }
+      if(!p1 || p1.length < 3){
+        if(st){ st.textContent = 'Kam se kam 3 characters'; st.style.color = '#c53030'; }
+        return;
+      }
+      if(p1 !== p2){
+        if(st){ st.textContent = 'Confirm match nahi'; st.style.color = '#c53030'; }
+        return;
+      }
+      localStorage.setItem(adminPassKey(), p1);
+      try { afterLocalWrite(adminPassKey()); } catch(e) {}
+      if(st){ st.textContent = 'Admin password saved'; st.style.color = '#276749'; }
+      const a = document.getElementById('newAdminPass'); if(a) a.value = '';
+      const b = document.getElementById('confirmAdminPass'); if(b) b.value = '';
+      const c = document.getElementById('currentAdminPass'); if(c) c.value = '';
+      updateAdminPassBadge();
+    }
+    function updateAdminPassBadge(){
+      const badge = document.getElementById('adminPassBadge');
+      const row = document.getElementById('currentAdminPassRow');
+      const has = !!localStorage.getItem(adminPassKey());
+      if(badge) badge.textContent = has ? 'Admin password: SET ✓' : 'Admin password: NOT SET (pehli baar set karo)';
+      if(row) row.style.display = has ? 'flex' : 'none';
+    }
+
+    function updateTabsPassBadge(){
+      const badge = document.getElementById('tabsPassBadge');
+      const row = document.getElementById('currentTabsPassRow');
+      const has = !!localStorage.getItem(tabsPassKey());
+      if(badge) badge.textContent = has ? '3-Tab password: SET ✓' : '3-Tab password: NOT SET';
+      if(row) row.style.display = has ? 'flex' : 'none';
+    }
     function setTabsPassword(){
       const existing = localStorage.getItem(tabsPassKey());
       const p1 = document.getElementById('newTabsPass').value;
@@ -3463,7 +3529,7 @@
       }
       if(!p1 || p1.length < 4){ showStatus('Password kam se kam 4 characters ka ho', true); return; }
       if(p1 !== p2){ showStatus('Password match nahi hua', true); return; }
-      localStorage.setItem(tabsPassKey(), p1); afterLocalWrite(tabsPassKey());
+      localStorage.setItem(tabsPassKey(), p1); afterLocalWrite(tabsPassKey()); try { updateTabsPassBadge(); } catch(e) {}
       document.getElementById('currentTabsPass').value = '';
       document.getElementById('newTabsPass').value = '';
       document.getElementById('confirmTabsPass').value = '';
@@ -3875,7 +3941,8 @@
       if(key === sessionKey()) return false;
       if(key === savedLoginKey()) return false;
       if(key === empCountKey()) return true;
-      if(key === empPinsKey()) return true; // PINs sab devices pe
+      if(key === empPinsKey()) return true;
+      if(key === adminPassKey()) return true;
       return key.indexOf('att_') === 0;
     }
 
