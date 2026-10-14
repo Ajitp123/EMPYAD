@@ -1533,7 +1533,6 @@
     function scheduleLiveSync(){
       markUserEdited();
       if(typeof syncingFromCloud !== 'undefined' && syncingFromCloud) return;
-      // Employee apni attendance lock ke baad bhi save/sync kar sake
       if(isMonthLocked(currentYear, currentMonth) && !isEmployee()) return;
       if(!liveSyncEnabled) return;
       if(liveSyncTimer) clearTimeout(liveSyncTimer);
@@ -1543,6 +1542,20 @@
           if(typeof syncingFromCloud !== 'undefined' && syncingFromCloud) return;
           if(isMonthLocked(currentYear, currentMonth) && !isEmployee()) return;
           if(!document.getElementById('code_0')) return;
+          // Employee: sirf jab active cell uski row ho
+          if(isEmployee()){
+            const ae = document.activeElement;
+            let ok = false;
+            if(ae && ae.id){
+              const m = ae.id.match(/^att_(\d+)_/);
+              if(m && canEditRow(parseInt(m[1],10))) ok = true;
+            }
+            if(!ok){
+              // phir bhi save allowed (blur ke baad) — canEditRow any own
+              for(let i=0;i<MAX_EMP;i++){ if(canEditRow(i)){ ok = true; break; } }
+            }
+            if(!ok) return;
+          }
           savePeriod({ silent: true });
         } catch(e) { console.error('live sync', e); }
       }, 350);
@@ -4170,27 +4183,84 @@
       const valStr = value == null ? '' : String(value);
       const ref = fbDb.collection('offices').doc(office).collection('data').doc(key);
 
-      // Last-write-wins: push if local is newer or equal; always push user edits
       let localT = Date.now();
+      let localObj = null;
       try {
         if(valStr){
-          const lp = JSON.parse(valStr);
-          if(lp && lp._updatedAt) localT = Number(lp._updatedAt) || localT;
+          localObj = JSON.parse(valStr);
+          if(localObj && localObj._updatedAt) localT = Number(localObj._updatedAt) || localT;
         }
-      } catch(e){}
-      const doSet = function(){
-        return ref.set({ v: valStr, t: localT }, { merge: true });
+      } catch(e){ localObj = null; }
+
+      // Employee: cloud pe sirf APNI row merge — doosre employees ka data overwrite mat karo
+      function mergeEmployeeRowIntoRemote(remoteStr, localPeriod, myCode){
+        let base = null;
+        try { base = remoteStr ? JSON.parse(remoteStr) : null; } catch(e){ base = null; }
+        if(!base || typeof base !== 'object'){
+          base = localPeriod ? JSON.parse(JSON.stringify(localPeriod)) : { employees: [], attendance: {}, notes: {} };
+        }
+        if(!base.employees) base.employees = [];
+        if(!base.attendance) base.attendance = {};
+        if(!base.notes) base.notes = {};
+        const codeU = String(myCode || '').trim().toUpperCase();
+        if(!codeU || !localPeriod) return base;
+
+        // local me meri index
+        let localIdx = -1;
+        const leps = localPeriod.employees || [];
+        for(let i=0; i<leps.length; i++){
+          if(String(leps[i].code||'').trim().toUpperCase() === codeU){ localIdx = i; break; }
+        }
+        if(localIdx < 0) return base;
+
+        // remote me same code ki index
+        let remoteIdx = -1;
+        for(let i=0; i<base.employees.length; i++){
+          if(String(base.employees[i].code||'').trim().toUpperCase() === codeU){ remoteIdx = i; break; }
+        }
+        if(remoteIdx < 0){
+          // naya slot end pe
+          remoteIdx = base.employees.length;
+          base.employees.push({ code: leps[localIdx].code, name: leps[localIdx].name, desig: leps[localIdx].desig || 'COM.OP.' });
+        } else {
+          base.employees[remoteIdx] = {
+            code: leps[localIdx].code || base.employees[remoteIdx].code,
+            name: leps[localIdx].name || base.employees[remoteIdx].name,
+            desig: (leps[localIdx].desig || base.employees[remoteIdx].desig || 'COM.OP.')
+          };
+        }
+        base.attendance[remoteIdx] = {};
+        const latt = (localPeriod.attendance && localPeriod.attendance[localIdx]) ? localPeriod.attendance[localIdx] : {};
+        Object.keys(latt).forEach(function(d){
+          if(latt[d] !== undefined && latt[d] !== null && String(latt[d]).trim() !== ''){
+            base.attendance[remoteIdx][d] = latt[d];
+          }
+        });
+        // notes for my row
+        if(localPeriod.notes && localPeriod.notes[localIdx]){
+          if(!base.notes) base.notes = {};
+          base.notes[remoteIdx] = localPeriod.notes[localIdx];
+        }
+        base._updatedAt = Date.now();
+        return base;
+      }
+
+      const doSet = function(str, t){
+        return ref.set({ v: str, t: t }, { merge: true });
       };
+
       if(isAttendancePeriodKey(key)){
         return ref.get().then(function(doc){
-          if(doc.exists){
-            const remote = doc.data() || {};
-            const remoteT = Number(remote.t) || 0;
-            // Cloud newer → local update karo, purana push mat karo
+          const remote = doc.exists ? (doc.data() || {}) : {};
+          const remoteT = Number(remote.t) || 0;
+          const remoteV = (typeof remote.v !== 'undefined') ? String(remote.v) : null;
+
+          // Admin / full document push
+          if(!isEmployee()){
             if(remoteT > localT){
-              console.warn('Cloud newer — apply remote, skip old push', key, localT, remoteT);
-              if(typeof remote.v !== 'undefined'){
-                localStorage.setItem(key, String(remote.v));
+              // cloud newer — apply, don't overwrite with older admin local
+              if(remoteV != null){
+                localStorage.setItem(key, remoteV);
                 try { clearPendingPushKey(key); } catch(e) {}
                 try {
                   if(key === storageKey(currentYear, currentMonth)){
@@ -4202,17 +4272,32 @@
               }
               return null;
             }
+            return doSet(valStr, localT);
           }
-          return doSet();
+
+          // EMPLOYEE: merge only my row into latest cloud
+          const myCode = getMyCode();
+          const merged = mergeEmployeeRowIntoRemote(remoteV, localObj, myCode);
+          const mergedStr = JSON.stringify(merged);
+          const mergedT = Number(merged._updatedAt) || Date.now();
+          // Also update local full picture from merge so UI matches cloud others
+          try {
+            localStorage.setItem(key, mergedStr);
+            if(key === storageKey(currentYear, currentMonth)){
+              data = loadPeriod(currentYear, currentMonth);
+            }
+          } catch(e) {}
+          return doSet(mergedStr, mergedT);
         }).catch(function(e){
           console.error('cloud push', key, e);
           queuePendingPush(key);
         });
       }
 
-      return doSet()
+      return doSet(valStr, localT)
         .catch(function(e){ console.error('cloud push', key, e); queuePendingPush(key); });
     }
+
 
     function cloudPushAllLocal(){
       if(!fbReady || !fbDb) return Promise.resolve(0);
