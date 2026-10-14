@@ -246,7 +246,7 @@
 
     <div class="role-bar" id="roleBar" style="display:none;">
       <span id="roleBarText">—</span>
-      <button class="btn btn-outline" style="padding:4px 10px;font-size:0.75rem;" onclick="doLogout()">Logout</button>
+      <button class="btn btn-outline" style="padding:4px 10px;font-size:0.75rem;" onclick="doLogout()" title="Logout (Ctrl+Shift+L)">Logout</button>
     </div>
     <div class="tabs">
       <button class="tab-btn active" data-tab="att" onclick="switchTab('att')">Attendance</button>
@@ -950,11 +950,33 @@
       if(!s){ bar.style.display = 'none'; return; }
       bar.style.display = 'flex';
       if(s.role === 'admin'){
-        txt.innerHTML = 'Role: <b>Admin</b> — sab employees edit + settings';
+        txt.innerHTML = 'Role: <b>Admin</b>';
       } else {
-        txt.innerHTML = 'Role: <b>Employee</b> — Code <b>'+esc(s.code)+'</b> (sirf apna attendance)';
+        const code = String(s.code || '').trim();
+        let name = '';
+        try {
+          if(data && data.employees){
+            for(let i=0; i<data.employees.length; i++){
+              if(String(data.employees[i].code||'').trim().toUpperCase() === code.toUpperCase()){
+                name = String(data.employees[i].name||'').trim();
+                break;
+              }
+            }
+          }
+          if(!name && typeof collectAllKnownEmployees === 'function'){
+            const list = collectAllKnownEmployees();
+            for(let i=0; i<list.length; i++){
+              if(String(list[i].code||'').trim().toUpperCase() === code.toUpperCase()){
+                name = String(list[i].name||'').trim();
+                break;
+              }
+            }
+          }
+        } catch(e) {}
+        txt.innerHTML = 'Role: <b>Employee</b> — Code <b>'+esc(code)+'</b>'+(name ? ' <b>'+esc(name)+'</b>' : '');
       }
     }
+
     function applyRolePermissions(){
       const s = getSession();
       const emp = isEmployee();
@@ -998,13 +1020,17 @@
       } catch(e) {}
     }
     function ensureLoggedIn(){
-      if(getSession()){
-        hideLoginOverlay();
-        updateRoleBar();
-        applyRolePermissions();
-        return true;
-      }
-      // Saved credentials → auto login (same device)
+      try {
+        const sess = getSession();
+        if(sess && sess.role){
+          if(sess.role === 'admin') protectedUnlocked = true;
+          liveSyncEnabled = true;
+          hideLoginOverlay();
+          updateRoleBar();
+          applyRolePermissions();
+          return true;
+        }
+      } catch(e) {}
       try {
         if(tryAutoLoginFromSaved()){
           updateRoleBar();
@@ -2079,7 +2105,7 @@
           const val = att[d] || '';
           const noteText = (data.notes && data.notes[i] && data.notes[i][d]) ? data.notes[i][d] : '';
           const hasNote = noteText.trim() !== '';
-          html += '<td class="att-cell'+(hasNote?' has-note':'')+'"><input class="att-input" id="att_'+i+'_'+d+'" value="'+esc(val)+'" maxlength="5" oninput="normalizeInput(this);updateSummary('+i+')" onchange="updateSummary('+i+')" onblur="normalizeInput(this);updateSummary('+i+')" ondblclick="openNotesModal('+i+','+d+')" onkeydown="attCellKeyNav(event,'+i+','+d+')" title="'+esc(noteText)+'"></td>';
+          html += '<td class="att-cell'+(hasNote?' has-note':'')+'"><input class="att-input" id="att_'+i+'_'+d+'" value="'+esc(val)+'" maxlength="5" oninput="normalizeInput(this);updateSummary('+i+');scheduleLiveSync()" onchange="updateSummary('+i+');scheduleLiveSync()" onblur="normalizeInput(this);updateSummary('+i+');scheduleLiveSync()" ondblclick="openNotesModal('+i+','+d+')" onkeydown="attCellKeyNav(event,'+i+','+d+')" title="'+esc(noteText)+'"></td>';
         }
         html += '<td class="summary-cell" id="sum_h_'+i+'" tabindex="0" onkeydown="summaryCellKeyNav(event,'+i+',0,'+days+')">'+sum.h+'</td>';
         html += '<td class="summary-cell" id="sum_l_'+i+'" tabindex="0" onkeydown="summaryCellKeyNav(event,'+i+',1,'+days+')">'+sum.l+'</td>';
@@ -4143,7 +4169,31 @@
     }
 
     // Init
+    window.addEventListener('keydown', function(e){
+      if(e.ctrlKey && e.shiftKey && (e.key === 'L' || e.key === 'l')){
+        e.preventDefault();
+        try { doLogout(); } catch(err) {}
+      }
+    });
     initSelectors();
+    document.addEventListener('visibilitychange', function(){
+      if(document.visibilityState === 'hidden'){
+        try {
+          if(getSession() && document.getElementById('code_0')){
+            markUserEdited();
+            savePeriod({ silent: true });
+          }
+        } catch(e) {}
+      }
+    });
+    window.addEventListener('pagehide', function(){
+      try {
+        if(getSession() && document.getElementById('code_0')){
+          markUserEdited();
+          savePeriod({ silent: true });
+        }
+      } catch(e) {}
+    });
     try { loadFirebaseForm(); } catch(e) {}
     syncMaxEmp();
     data = loadPeriod(currentYear, currentMonth);
