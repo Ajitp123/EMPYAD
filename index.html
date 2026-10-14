@@ -161,9 +161,68 @@
     #tab-security .settings-box > p:not([id]) { display: none !important; }
     #tab-settings .settings-box > p.hint { display: none !important; }
     #tab-settings .settings-box#infoBox p, #tab-settings .settings-box:last-child p { display: none !important; }
-  </style>
+
+    #loginOverlay {
+      position: fixed; inset: 0; z-index: 2000;
+      background: linear-gradient(160deg, #1a365d 0%, #2c5282 50%, #2b6cb0 100%);
+      display: flex; align-items: center; justify-content: center;
+      padding: 16px;
+    }
+    #loginOverlay.hidden { display: none !important; }
+    .login-card {
+      background: #fff; border-radius: 14px; padding: 28px 24px;
+      width: 100%; max-width: 380px; box-shadow: 0 20px 50px rgba(0,0,0,0.35);
+    }
+    .login-card h2 { color: #2c5282; margin: 0 0 6px 0; font-size: 1.25rem; }
+    .login-card .login-sub { color: #718096; font-size: 0.85rem; margin-bottom: 18px; }
+    .login-card label { display: block; font-size: 0.8rem; font-weight: 600; color: #4a5568; margin-bottom: 4px; }
+    .login-card input, .login-card select {
+      width: 100%; box-sizing: border-box; padding: 10px 12px;
+      border: 1px solid #cbd5e0; border-radius: 8px; font-size: 1rem; margin-bottom: 12px;
+    }
+    .login-card .login-err { color: #c53030; font-size: 0.85rem; min-height: 1.2em; margin: 0 0 8px 0; }
+    .login-card .btn { width: 100%; margin-top: 4px; }
+    .login-mode-row { display: flex; gap: 8px; margin-bottom: 14px; }
+    .login-mode-row button {
+      flex: 1; padding: 8px; border-radius: 8px; border: 2px solid #e2e8f0;
+      background: #f7fafc; font-weight: 600; cursor: pointer; color: #4a5568;
+    }
+    .login-mode-row button.active { border-color: #2c5282; background: #ebf8ff; color: #2c5282; }
+    tr.row-other-emp td { opacity: 0.92; }
+    tr.row-my-emp td.name-cell, tr.row-my-emp td.code-cell { box-shadow: inset 3px 0 0 #38a169; }
+    .role-bar {
+      display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+      padding: 6px 12px; background: #edf2f7; font-size: 0.8rem; color: #2d3748;
+    }
+    .role-bar b { color: #2c5282; }
+    .att-input.role-locked { background: #f7fafc !important; cursor: not-allowed; }
+    </style>
 </head>
 <body>
+
+  <div id="loginOverlay">
+    <div class="login-card">
+      <h2>Attendance Login</h2>
+      <p class="login-sub">Admin: sab edit · Employee: sirf apna attendance</p>
+      <div class="login-mode-row">
+        <button type="button" id="loginModeEmp" class="active" onclick="setLoginMode('employee')">Employee</button>
+        <button type="button" id="loginModeAdmin" onclick="setLoginMode('admin')">Admin</button>
+      </div>
+      <div id="loginEmpFields">
+        <label>Employee Code</label>
+        <input type="text" id="loginCode" placeholder="e.g. 49630" autocomplete="username">
+        <label>PIN / Password</label>
+        <input type="password" id="loginPin" placeholder="PIN" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+      </div>
+      <div id="loginAdminFields" style="display:none;">
+        <label>Admin Password</label>
+        <input type="password" id="loginAdminPass" placeholder="Security / Admin password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+      </div>
+      <p class="login-err" id="loginErr"></p>
+      <button class="btn btn-primary" onclick="doLogin()">Login</button>
+    </div>
+  </div>
+
   <div class="container">
     <header>
       <div>
@@ -176,6 +235,11 @@
       </div>
     </header>
 
+
+    <div class="role-bar" id="roleBar" style="display:none;">
+      <span id="roleBarText">—</span>
+      <button class="btn btn-outline" style="padding:4px 10px;font-size:0.75rem;" onclick="doLogout()">Logout</button>
+    </div>
     <div class="tabs">
       <button class="tab-btn active" data-tab="att" onclick="switchTab('att')">Attendance</button>
       <button class="tab-btn" data-tab="report" onclick="switchTab('report')">Year Summary</button>
@@ -448,6 +512,14 @@
     </div>
 
     <div id="tab-security" class="tab-panel">
+      <div class="settings-box" id="empPinBox">
+        <h3>👤 Employee Login PINs</h3>
+        <p id="empPinHint" style="font-size:0.8rem;color:#4a5568;">Har employee ka Code + PIN. Employee login pe sirf apni row edit.</p>
+        <div id="empPinList"></div>
+        <button class="btn btn-success" onclick="saveEmpPins()" style="margin-top:8px;">Save PINs</button>
+        <p id="empPinStatus" style="font-size:0.8rem;color:#276749;"></p>
+      </div>
+
       <div class="settings-box">
         <h3>🔒 Salary Rates / Backup / Settings — Tab Password</h3>
         <p>Ye password sirf <b>Salary Rates</b>, <b>Backup</b> aur <b>Settings</b> — in 3 tabs me jaane ke liye chahiye. Ye "Clear Month" wale password se bilkul alag hai.</p>
@@ -589,6 +661,245 @@
       while(arr.length < n) arr.push(DEFAULT_RATE);
       return arr.slice(0, n);
     }
+    
+    // ========== ROLE / LOGIN (Admin vs Employee) ==========
+    function sessionKey(){ return 'att_user_session'; }
+    function empPinsKey(){ return 'att_emp_pins'; }
+    let loginMode = 'employee';
+
+    function getSession(){
+      try {
+        const raw = localStorage.getItem(sessionKey());
+        if(raw){
+          const s = JSON.parse(raw);
+          if(s && s.role) return s;
+        }
+      } catch(e) {}
+      return null;
+    }
+    function setSession(s){
+      if(!s) localStorage.removeItem(sessionKey());
+      else localStorage.setItem(sessionKey(), JSON.stringify(s));
+      updateRoleBar();
+      try { applyRolePermissions(); } catch(e) {}
+    }
+    function isAdmin(){
+      const s = getSession();
+      return !!(s && s.role === 'admin');
+    }
+    function isEmployee(){
+      const s = getSession();
+      return !!(s && s.role === 'employee' && s.code);
+    }
+    function getMyCode(){
+      const s = getSession();
+      return s && s.role === 'employee' ? String(s.code||'').trim().toUpperCase() : '';
+    }
+    function canEditRow(i){
+      if(isMonthLocked(currentYear, currentMonth)) return false;
+      if(isAdmin() || !getSession()) return true; // no session = treat open until login shown
+      if(!isEmployee()) return true;
+      const codeEl = document.getElementById('code_'+i);
+      let c = codeEl ? codeEl.value.trim() : '';
+      if(!c && data.employees && data.employees[i]) c = String(data.employees[i].code||'').trim();
+      return c.toUpperCase() === getMyCode();
+    }
+    function loadEmpPins(){
+      try {
+        const raw = localStorage.getItem(empPinsKey());
+        if(raw){
+          const o = JSON.parse(raw);
+          if(o && typeof o === 'object') return o;
+        }
+      } catch(e) {}
+      return {};
+    }
+    function saveEmpPins(){
+      if(!isAdmin()){ showStatus('Sirf Admin PIN set kar sakta hai', true); return; }
+      const pins = {};
+      const inputs = document.querySelectorAll('[id^="emp_pin_"]');
+      inputs.forEach(function(inp){
+        const code = (inp.getAttribute('data-code')||'').trim().toUpperCase();
+        const pin = inp.value.trim();
+        if(code && pin) pins[code] = pin;
+      });
+      localStorage.setItem(empPinsKey(), JSON.stringify(pins));
+      try { afterLocalWrite(empPinsKey()); } catch(e) {}
+      const st = document.getElementById('empPinStatus');
+      if(st) st.textContent = 'PINs saved (' + Object.keys(pins).length + ' employees)';
+      showStatus('Employee PINs saved');
+    }
+    function renderEmpPinList(){
+      const box = document.getElementById('empPinList');
+      if(!box) return;
+      const pins = loadEmpPins();
+      const emps = collectAllKnownEmployees();
+      // also current month
+      try {
+        for(let i=0; i<MAX_EMP; i++){
+          const c = document.getElementById('code_'+i);
+          const n = document.getElementById('name_'+i);
+          if(c && c.value.trim()){
+            emps.push({ code: c.value.trim(), name: n ? storageNameFromDisplay(n.value) : '' });
+          }
+        }
+      } catch(e) {}
+      const seen = {};
+      let html = '';
+      emps.forEach(function(e){
+        const code = String(e.code||'').trim().toUpperCase();
+        if(!code || seen[code]) return;
+        seen[code] = true;
+        const name = e.name || '';
+        const pin = pins[code] || '';
+        html += '<div class="row" style="margin-bottom:8px;"><label style="min-width:140px;">'+esc(code)+(name?' — '+esc(name):'')+'</label>';
+        html += '<input type="password" id="emp_pin_'+code+'" data-code="'+esc(code)+'" value="'+esc(pin)+'" placeholder="Set PIN" style="flex:1;max-width:160px;"></div>';
+      });
+      if(!html) html = '<p style="color:#718096;font-size:0.85rem;">Pehle Attendance me Code + Name likho.</p>';
+      box.innerHTML = html;
+    }
+    function setLoginMode(mode){
+      loginMode = mode;
+      const empBtn = document.getElementById('loginModeEmp');
+      const admBtn = document.getElementById('loginModeAdmin');
+      if(empBtn) empBtn.classList.toggle('active', mode === 'employee');
+      if(admBtn) admBtn.classList.toggle('active', mode === 'admin');
+      const ef = document.getElementById('loginEmpFields');
+      const af = document.getElementById('loginAdminFields');
+      if(ef) ef.style.display = mode === 'employee' ? 'block' : 'none';
+      if(af) af.style.display = mode === 'admin' ? 'block' : 'none';
+      const err = document.getElementById('loginErr');
+      if(err) err.textContent = '';
+    }
+    function showLoginOverlay(){
+      const ov = document.getElementById('loginOverlay');
+      if(ov) ov.classList.remove('hidden');
+    }
+    function hideLoginOverlay(){
+      const ov = document.getElementById('loginOverlay');
+      if(ov) ov.classList.add('hidden');
+    }
+    function doLogin(){
+      const err = document.getElementById('loginErr');
+      if(err) err.textContent = '';
+      if(loginMode === 'admin'){
+        const pass = (document.getElementById('loginAdminPass')||{}).value || '';
+        const storedTabs = localStorage.getItem(tabsPassKey());
+        const storedClear = localStorage.getItem(passKey());
+        // Accept tabs password OR clear password; if neither set, allow first-time admin with any non-empty OR empty confirm
+        let ok = false;
+        if(storedTabs && pass === storedTabs) ok = true;
+        else if(storedClear && pass === storedClear) ok = true;
+        else if(!storedTabs && !storedClear){
+          // no password set yet — allow admin entry (set password in Security later)
+          ok = true;
+        }
+        if(!ok){
+          if(err) err.textContent = 'Galat Admin password';
+          return;
+        }
+        setSession({ role: 'admin', at: Date.now() });
+        protectedUnlocked = true;
+        hideLoginOverlay();
+        showStatus('Admin login — sab edit allowed');
+        try { applyRolePermissions(); renderTable(); } catch(e) {}
+        return;
+      }
+      // Employee
+      const code = String((document.getElementById('loginCode')||{}).value || '').trim().toUpperCase();
+      const pin = String((document.getElementById('loginPin')||{}).value || '').trim();
+      if(!code || !pin){
+        if(err) err.textContent = 'Code aur PIN dono likho';
+        return;
+      }
+      const pins = loadEmpPins();
+      if(!pins[code]){
+        if(err) err.textContent = 'Is Code ka PIN set nahi. Admin se Security tab me PIN set karwao.';
+        return;
+      }
+      if(pins[code] !== pin){
+        if(err) err.textContent = 'Galat PIN';
+        return;
+      }
+      setSession({ role: 'employee', code: code, at: Date.now() });
+      hideLoginOverlay();
+      showStatus('Login: Code ' + code + ' — sirf apni row edit');
+      try { applyRolePermissions(); renderTable(); } catch(e) {}
+    }
+    function doLogout(){
+      setSession(null);
+      protectedUnlocked = false;
+      showLoginOverlay();
+      setLoginMode('employee');
+      showStatus('Logged out');
+    }
+    function updateRoleBar(){
+      const bar = document.getElementById('roleBar');
+      const txt = document.getElementById('roleBarText');
+      const s = getSession();
+      if(!bar || !txt) return;
+      if(!s){ bar.style.display = 'none'; return; }
+      bar.style.display = 'flex';
+      if(s.role === 'admin'){
+        txt.innerHTML = 'Role: <b>Admin</b> — sab employees edit + settings';
+      } else {
+        txt.innerHTML = 'Role: <b>Employee</b> — Code <b>'+esc(s.code)+'</b> (sirf apna attendance)';
+      }
+    }
+    function applyRolePermissions(){
+      const s = getSession();
+      const emp = isEmployee();
+      // Tab buttons
+      document.querySelectorAll('.tab-btn').forEach(function(b){
+        const t = b.dataset.tab;
+        if(!t) return;
+        if(emp && (t === 'rates' || t === 'backup' || t === 'settings' || t === 'security')){
+          b.style.display = 'none';
+        } else {
+          b.style.display = '';
+        }
+      });
+      // Table cells
+      try { applyLockState(); } catch(e) {}
+      // Highlight rows
+      try {
+        for(let i=0; i<MAX_EMP; i++){
+          const codeEl = document.getElementById('code_'+i);
+          if(!codeEl) continue;
+          const tr = codeEl.closest('tr');
+          if(!tr) continue;
+          tr.classList.remove('row-my-emp', 'row-other-emp');
+          if(emp){
+            if(canEditRow(i)) tr.classList.add('row-my-emp');
+            else tr.classList.add('row-other-emp');
+          }
+        }
+      } catch(e) {}
+      // Bulk fill: employee only own
+      try {
+        const bulkEmp = document.getElementById('bulkEmpSelect');
+        if(bulkEmp && emp){
+          const my = getMyCode();
+          for(let i=0; i<MAX_EMP; i++){
+            const codeEl = document.getElementById('code_'+i);
+            const c = codeEl ? codeEl.value.trim().toUpperCase() : '';
+            if(c === my){ bulkEmp.value = String(i); break; }
+          }
+        }
+      } catch(e) {}
+    }
+    function ensureLoggedIn(){
+      if(getSession()){
+        hideLoginOverlay();
+        updateRoleBar();
+        applyRolePermissions();
+        return true;
+      }
+      showLoginOverlay();
+      return false;
+    }
+
+
     function requireSecurityPassword(title, onOk){
       const stored = localStorage.getItem(tabsPassKey());
       if(!stored){
@@ -1107,27 +1418,46 @@
       const btnUn = document.getElementById('btnUnlock');
       if(badge) badge.style.display = locked ? 'inline-block' : 'none';
       if(btnUn) btnUn.style.display = locked ? 'inline-block' : 'none';
+      // Employee cannot unlock month
+      if(btnUn && isEmployee()) btnUn.style.display = 'none';
       const days = getDaysInMonth(currentYear, currentMonth);
+      const empMode = isEmployee();
       for(let i=0; i<MAX_EMP; i++){
         const codeEl = document.getElementById('code_'+i);
         const nameEl = document.getElementById('name_'+i);
-        if(codeEl) codeEl.readOnly = locked;
-        if(nameEl) nameEl.readOnly = locked;
+        const rowOk = canEditRow(i);
+        // Code/Name: only admin can edit (when unlocked)
+        if(codeEl){
+          codeEl.readOnly = locked || empMode || !isAdmin();
+          if(!getSession()) codeEl.readOnly = locked;
+          if(isAdmin()) codeEl.readOnly = locked;
+        }
+        if(nameEl){
+          nameEl.readOnly = locked || empMode;
+          if(isAdmin()) nameEl.readOnly = locked;
+          if(!getSession()) nameEl.readOnly = locked;
+        }
         for(let d=1; d<=days; d++){
           const inp = document.getElementById('att_'+i+'_'+d);
           if(inp){
-            inp.readOnly = locked;
-            if(locked) inp.style.opacity = '0.85';
+            const allow = !locked && rowOk && (isAdmin() || isEmployee() || !getSession());
+            // employee: only own row; admin: all; no session: all (login will show)
+            let can = !locked;
+            if(empMode) can = !locked && rowOk;
+            else if(isAdmin()) can = !locked;
+            inp.readOnly = !can;
+            inp.classList.toggle('role-locked', !can);
+            if(!can) inp.style.opacity = '0.85';
             else inp.style.opacity = '';
           }
         }
       }
-      // prevent editing dept when locked optional - leave editable
       const bulkBtn = document.getElementById('btnBulkFill');
       const bulkEmp = document.getElementById('bulkEmpSelect');
       const bulkVal = document.getElementById('bulkValueSelect');
-      if(bulkBtn) bulkBtn.disabled = locked;
-      if(bulkEmp) bulkEmp.disabled = locked;
+      const bulkDisabled = locked || (empMode && !getMyCode());
+      if(bulkBtn) bulkBtn.disabled = locked || (isEmployee() && !getMyCode());
+      if(bulkEmp) bulkEmp.disabled = locked || isEmployee(); // employee fixed to self
       if(bulkVal) bulkVal.disabled = locked;
     }
 
@@ -1211,6 +1541,12 @@
     function switchTab(name, fromPopstate){
       if(!name) name = 'att';
 
+      // Employee: rates/backup/settings/security band
+      if(isEmployee() && (name === 'rates' || name === 'backup' || name === 'settings' || name === 'security')){
+        showStatus('Ye tab sirf Admin ke liye hai', true);
+        return;
+      }
+
       // Salary Rates / Backup / Settings — password se protect (agar password set hai)
       if(PROTECTED_TABS.includes(name) && !protectedUnlocked){
         const stored = localStorage.getItem(tabsPassKey());
@@ -1263,6 +1599,7 @@
         renderYearSummary();
       }
       if(name === 'totals'){ refreshTotalsEmpSelect(); renderGrandTotal(); }
+      if(name === 'security'){ try { renderEmpPinList(); } catch(e) {} }
       if(name === 'settings'){ try{ loadFirebaseForm(); }catch(e){} fillClearSelectors(); refreshClearPassBadge(); }
       if(name === 'backup') {
         const bs = document.getElementById('backupStatus');
@@ -1595,6 +1932,7 @@
       colorizeAllCells();
       highlightTopSalary();
       applyLockState();
+      try { applyRolePermissions(); } catch(e) {}
       refreshEmployeeSelectors();
       try {
         for(let gi=0; gi<MAX_EMP; gi++){
@@ -2023,6 +2361,12 @@
         return;
       }
       const empIdx = parseInt(document.getElementById('bulkEmpSelect').value);
+      if(isEmployee() && !canEditRow(empIdx)){
+        const st = document.getElementById('bulkFillStatus');
+        if(st){ st.textContent = 'Sirf apna attendance bulk fill kar sakte ho.'; st.style.color = '#9b2c2c'; }
+        showStatus('Sirf apni row', true);
+        return;
+      }
       const val = document.getElementById('bulkValueSelect').value;
       let fromD = parseInt(document.getElementById('bulkFromDate').value);
       let toD = parseInt(document.getElementById('bulkToDate').value);
