@@ -203,7 +203,7 @@
   <div id="loginOverlay">
     <div class="login-card">
       <h2>Attendance Login</h2>
-      <p class="login-sub">Admin: sab edit · Employee: sirf apna attendance</p>
+      <p class="login-sub" style="display:none;"></p>
       <div class="login-mode-row">
         <button type="button" id="loginModeEmp" class="active" onclick="setLoginMode('employee')">Employee</button>
         <button type="button" id="loginModeAdmin" onclick="setLoginMode('admin')">Admin</button>
@@ -214,7 +214,7 @@
         <label>PIN / Password</label>
         <input type="password" id="loginPin" placeholder="PIN" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
         <label style="display:flex;align-items:center;gap:8px;font-weight:500;margin:4px 0 10px 0;cursor:pointer;">
-          <input type="checkbox" id="loginRememberEmp" style="width:auto;margin:0;">
+          <input type="checkbox" id="loginRememberEmp" style="width:auto;margin:0;" checked>
           Code aur PIN is device pe save rakho
         </label>
       </div>
@@ -222,7 +222,7 @@
         <label>Admin Password</label>
         <input type="password" id="loginAdminPass" placeholder="Security tab password only" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
         <label style="display:flex;align-items:center;gap:8px;font-weight:500;margin:4px 0 10px 0;cursor:pointer;">
-          <input type="checkbox" id="loginRememberAdmin" style="width:auto;margin:0;">
+          <input type="checkbox" id="loginRememberAdmin" style="width:auto;margin:0;" checked>
           Password is device pe save rakho
         </label>
       </div>
@@ -706,49 +706,45 @@
       }
     }
     function tryAutoLoginFromSaved(){
-      const s = loadSavedLogin();
-      if(!s || !s.auto) return false;
+      let s = null;
+      try { s = loadSavedLogin(); } catch(e) { s = null; }
+      if(!s || typeof s !== 'object') return false;
+      // auto flag optional — code+pin / adminPass enough
       try {
-        if(s.mode === 'admin' && s.adminPass){
+        if(s.mode === 'admin' && s.adminPass != null && String(s.adminPass).length >= 0){
           const storedTabs = localStorage.getItem(tabsPassKey());
-          if(storedTabs && s.adminPass === storedTabs){
-            setSession({ role: 'admin', at: Date.now() });
-            protectedUnlocked = true;
-            liveSyncEnabled = true;
-            hideLoginOverlay();
-            applyRolePermissions();
-            renderTable();
-            markUserEdited();
-            showStatus('Auto login: Admin');
-            return true;
+          if(storedTabs && String(s.adminPass) !== String(storedTabs)){
+            return false; // password changed
           }
-          if(!storedTabs){
-            setSession({ role: 'admin', at: Date.now() });
-            protectedUnlocked = true;
-            liveSyncEnabled = true;
-            hideLoginOverlay();
-            applyRolePermissions();
-            renderTable();
-            return true;
-          }
+          setSession({ role: 'admin', at: Date.now() });
+          protectedUnlocked = true;
+          liveSyncEnabled = true;
+          hideLoginOverlay();
+          try { applyRolePermissions(); if(typeof renderTable==='function') renderTable(); markUserEdited(); } catch(e) {}
+          try { showStatus('Auto login: Admin'); } catch(e) {}
+          return true;
         }
-        if(s.mode === 'employee' && s.code && s.pin){
-          const pins = loadEmpPins();
-          const code = String(s.code).toUpperCase();
-          if(pins[code] && pins[code] === s.pin){
-            setSession({ role: 'employee', code: code, at: Date.now() });
-            liveSyncEnabled = true;
-            hideLoginOverlay();
-            applyRolePermissions();
-            renderTable();
-            applyLockState();
-            showStatus('Auto login: ' + code);
-            return true;
-          }
+        if((s.mode === 'employee' || s.code) && s.code && s.pin){
+          const code = String(s.code).trim().toUpperCase();
+          const pin = String(s.pin);
+          // Same device pe saved login trust — PIN list optional
+          try {
+            const pins = loadEmpPins();
+            if(pins && pins[code] && String(pins[code]) !== pin){
+              return false; // admin ne PIN badal diya
+            }
+          } catch(e) {}
+          setSession({ role: 'employee', code: code, at: Date.now() });
+          liveSyncEnabled = true;
+          hideLoginOverlay();
+          try { applyRolePermissions(); if(typeof renderTable==='function') renderTable(); applyLockState(); } catch(e) {}
+          try { showStatus('Auto login: ' + code); } catch(e) {}
+          return true;
         }
-      } catch(e) { console.error(e); }
+      } catch(e) { console.error('autoLogin', e); }
       return false;
     }
+
 
 
     function empPinsKey(){ return 'att_emp_pins'; }
@@ -939,7 +935,7 @@
       setSession(null);
       protectedUnlocked = false;
       showLoginOverlay();
-      setLoginMode('employee');
+      try { fillLoginFormFromSaved(); } catch(e) {}
       showStatus('Logged out');
     }
     function updateRoleBar(){
@@ -1027,7 +1023,7 @@
           liveSyncEnabled = true;
           hideLoginOverlay();
           updateRoleBar();
-          applyRolePermissions();
+          try { applyRolePermissions(); } catch(e) {}
           return true;
         }
       } catch(e) {}
@@ -1036,10 +1032,12 @@
           updateRoleBar();
           return true;
         }
-      } catch(e) {}
+      } catch(e) { console.error(e); }
       showLoginOverlay();
+      try { fillLoginFormFromSaved(); } catch(e) {}
       return false;
     }
+
 
 
     function requireSecurityPassword(title, onOk){
@@ -4176,6 +4174,9 @@
       }
     });
     initSelectors();
+    try { ensureLoggedIn(); } catch(e) {}
+    setTimeout(function(){ try { ensureLoggedIn(); } catch(e) {} }, 100);
+    setTimeout(function(){ try { ensureLoggedIn(); } catch(e) {} }, 500);
     document.addEventListener('visibilitychange', function(){
       if(document.visibilityState === 'hidden'){
         try {
