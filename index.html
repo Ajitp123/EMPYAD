@@ -1238,11 +1238,17 @@
 
     function afterLocalWrite(key){
       try {
+        if(!navigator.onLine || !fbReady){
+          try { queuePendingPush(key); } catch(e) {}
+          return;
+        }
         if(typeof cloudPushKey === 'function'){
           const val = localStorage.getItem(key);
           if(val !== null) cloudPushKey(key, val);
         }
-      } catch(e) {}
+      } catch(e) {
+        try { queuePendingPush(key); } catch(err) {}
+      }
     }
 
     function ratesKey(y,m){ return 'att_rates_'+y+'_'+m; }
@@ -4014,22 +4020,21 @@
               const localVal = localStorage.getItem(key);
               if(localVal === val) return;
 
-              // Last-write-wins by timestamp (live sync reliable)
+              // Last-write-wins: remote.t >= local._updatedAt → apply (delete bhi jeete)
               let localT = 0;
               try {
                 if(localVal){
                   const lp = JSON.parse(localVal);
-                  localT = Number(lp._updatedAt) || Number(payload && 0) || 0;
-                  if(!localT && payload) localT = 0;
+                  localT = Number(lp._updatedAt) || 0;
                 }
               } catch(e){}
               const remoteT = Number(payload.t) || 0;
-              // local newer → remote ignore (humne abhi push kiya / type kar rahe)
-              if(localVal && localT && remoteT && remoteT < localT){
+              // Local strictly newer → cloud ignore, baad me push
+              if(localVal && localT > 0 && remoteT > 0 && remoteT < localT){
                 return;
               }
-              // same content already handled above
               localStorage.setItem(key, val);
+              try { clearPendingPushKey(key); } catch(e) {}
               changed = true;
               if(key === storageKey(currentYear, currentMonth) || key === ratesKey(currentYear, currentMonth) || key === lockKey(currentYear, currentMonth) || key === empCountKey()){
                 touchCurrent = true;
@@ -4070,6 +4075,15 @@
 
 
     function pendingPushKey(){ return 'att_pending_push_keys'; }
+    function clearPendingPushKey(key){
+      try {
+        let arr = [];
+        const raw = localStorage.getItem(pendingPushKey());
+        if(raw) arr = JSON.parse(raw) || [];
+        arr = arr.filter(function(k){ return k !== key; });
+        localStorage.setItem(pendingPushKey(), JSON.stringify(arr));
+      } catch(e) {}
+    }
     function queuePendingPush(key){
       try {
         let arr = [];
@@ -4102,13 +4116,15 @@
     function onAppOnline(){
       if(!fbReady || !fbDb) return;
       setSyncUI('Online — sync…', true);
-      flushPendingPushes().then(function(){
-        return manualCloudPullQuiet();
+      // PEHLE cloud se naya data lo (delete/fill jo latest ho), PHIR local pending push
+      manualCloudPullQuiet().then(function(){
+        return flushPendingPushes();
       }).then(function(){
-        setSyncUI('On · Office: ' + (getOfficeId()||'') + ' · live', true);
-        showStatus('Net wapas — data sync ho gaya');
+        setSyncUI('On · Office: ' + (getOfficeId()||'') + ' · Realtime sync ✓', true);
+        showStatus('Net ON — latest data sync');
       }).catch(function(e){
         console.error(e);
+        try { flushPendingPushes(); } catch(err) {}
       });
     }
     function manualCloudPullQuiet(){
@@ -4130,8 +4146,9 @@
               let localT = 0;
               try { if(localVal) localT = Number(JSON.parse(localVal)._updatedAt)||0; } catch(e){}
               const remoteT = Number(payload.t)||0;
-              if(localVal && localT && remoteT && remoteT < localT) return;
+              if(localVal && localT > 0 && remoteT > 0 && remoteT < localT) return;
               localStorage.setItem(key, val);
+              try { clearPendingPushKey(key); } catch(e) {}
               if(key === storageKey(currentYear, currentMonth) || key === ratesKey(currentYear, currentMonth) || key === lockKey(currentYear, currentMonth) || key === empCountKey()){
                 touchCurrent = true;
               }
@@ -4169,9 +4186,20 @@
           if(doc.exists){
             const remote = doc.data() || {};
             const remoteT = Number(remote.t) || 0;
-            // Cloud clearly newer → skip overwrite (another device just wrote)
-            if(remoteT > localT + 50){
-              console.warn('Skip older local push', key, localT, remoteT);
+            // Cloud newer → local update karo, purana push mat karo
+            if(remoteT > localT){
+              console.warn('Cloud newer — apply remote, skip old push', key, localT, remoteT);
+              if(typeof remote.v !== 'undefined'){
+                localStorage.setItem(key, String(remote.v));
+                try { clearPendingPushKey(key); } catch(e) {}
+                try {
+                  if(key === storageKey(currentYear, currentMonth)){
+                    data = loadPeriod(currentYear, currentMonth);
+                    if(typeof renderTablePreserveFocus === 'function') renderTablePreserveFocus();
+                    else if(typeof renderTable === 'function') renderTable();
+                  }
+                } catch(e) {}
+              }
               return null;
             }
           }
