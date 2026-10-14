@@ -696,13 +696,19 @@
       return s && s.role === 'employee' ? String(s.code||'').trim().toUpperCase() : '';
     }
     function canEditRow(i){
-      if(isMonthLocked(currentYear, currentMonth)) return false;
-      if(isAdmin() || !getSession()) return true; // no session = treat open until login shown
+      // Admin / no session: sab rows (login overlay alag handle)
+      if(isAdmin()) return true;
+      if(!getSession()) return true;
       if(!isEmployee()) return true;
+      const my = getMyCode();
+      if(!my) return false;
+      let c = '';
       const codeEl = document.getElementById('code_'+i);
-      let c = codeEl ? codeEl.value.trim() : '';
-      if(!c && data.employees && data.employees[i]) c = String(data.employees[i].code||'').trim();
-      return c.toUpperCase() === getMyCode();
+      if(codeEl) c = String(codeEl.value || '').trim();
+      if(!c && data && data.employees && data.employees[i]){
+        c = String(data.employees[i].code || '').trim();
+      }
+      return c.toUpperCase() === my;
     }
     function loadEmpPins(){
       try {
@@ -1336,14 +1342,15 @@
     function scheduleLiveSync(){
       markUserEdited();
       if(typeof syncingFromCloud !== 'undefined' && syncingFromCloud) return;
-      if(isMonthLocked(currentYear, currentMonth)) return;
+      // Employee apni attendance lock ke baad bhi save/sync kar sake
+      if(isMonthLocked(currentYear, currentMonth) && !isEmployee()) return;
       if(!liveSyncEnabled) return;
       if(liveSyncTimer) clearTimeout(liveSyncTimer);
       liveSyncTimer = setTimeout(function(){
         liveSyncTimer = null;
         try {
           if(typeof syncingFromCloud !== 'undefined' && syncingFromCloud) return;
-          if(isMonthLocked(currentYear, currentMonth)) return;
+          if(isMonthLocked(currentYear, currentMonth) && !isEmployee()) return;
           if(!document.getElementById('code_0')) return;
           savePeriod({ silent: true });
         } catch(e) { console.error('live sync', e); }
@@ -1417,48 +1424,59 @@
       const badge = document.getElementById('lockBadge');
       const btnUn = document.getElementById('btnUnlock');
       if(badge) badge.style.display = locked ? 'inline-block' : 'none';
-      if(btnUn) btnUn.style.display = locked ? 'inline-block' : 'none';
-      // Employee cannot unlock month
-      if(btnUn && isEmployee()) btnUn.style.display = 'none';
+      if(btnUn){
+        btnUn.style.display = locked && isAdmin() ? 'inline-block' : (locked && !isEmployee() ? 'inline-block' : 'none');
+        if(isEmployee()) btnUn.style.display = 'none';
+      }
       const days = getDaysInMonth(currentYear, currentMonth);
       const empMode = isEmployee();
+      const adminMode = isAdmin();
       for(let i=0; i<MAX_EMP; i++){
         const codeEl = document.getElementById('code_'+i);
         const nameEl = document.getElementById('name_'+i);
         const rowOk = canEditRow(i);
-        // Code/Name: only admin can edit (when unlocked)
+        // Code / Name: sirf Admin (unlocked)
         if(codeEl){
-          codeEl.readOnly = locked || empMode || !isAdmin();
+          codeEl.readOnly = locked || empMode || !adminMode;
           if(!getSession()) codeEl.readOnly = locked;
-          if(isAdmin()) codeEl.readOnly = locked;
+          if(adminMode) codeEl.readOnly = locked;
         }
         if(nameEl){
-          nameEl.readOnly = locked || empMode;
-          if(isAdmin()) nameEl.readOnly = locked;
+          nameEl.readOnly = locked || empMode || !adminMode;
           if(!getSession()) nameEl.readOnly = locked;
+          if(adminMode) nameEl.readOnly = locked;
         }
         for(let d=1; d<=days; d++){
           const inp = document.getElementById('att_'+i+'_'+d);
-          if(inp){
-            const allow = !locked && rowOk && (isAdmin() || isEmployee() || !getSession());
-            // employee: only own row; admin: all; no session: all (login will show)
-            let can = !locked;
-            if(empMode) can = !locked && rowOk;
-            else if(isAdmin()) can = !locked;
-            inp.readOnly = !can;
-            inp.classList.toggle('role-locked', !can);
-            if(!can) inp.style.opacity = '0.85';
-            else inp.style.opacity = '';
+          if(!inp) continue;
+          // Employee: apni row HAMESHA fill (month lock ignore)
+          // Admin: month lock maane — sab rows tabhi jab unlocked
+          let can = false;
+          if(empMode){
+            can = rowOk; // own row only; lock se farak nahi
+          } else if(adminMode){
+            can = !locked;
+          } else {
+            can = !locked;
           }
+          inp.readOnly = !can;
+          if(empMode && !rowOk){
+            inp.disabled = true;
+          } else {
+            inp.disabled = false;
+          }
+          inp.classList.toggle('role-locked', !can);
+          inp.style.opacity = can ? '' : '0.8';
+          inp.style.pointerEvents = can ? '' : 'none';
         }
       }
       const bulkBtn = document.getElementById('btnBulkFill');
       const bulkEmp = document.getElementById('bulkEmpSelect');
       const bulkVal = document.getElementById('bulkValueSelect');
-      const bulkDisabled = locked || (empMode && !getMyCode());
-      if(bulkBtn) bulkBtn.disabled = locked || (isEmployee() && !getMyCode());
-      if(bulkEmp) bulkEmp.disabled = locked || isEmployee(); // employee fixed to self
-      if(bulkVal) bulkVal.disabled = locked;
+      // Employee bulk: apni row, lock ignore
+      if(bulkBtn) bulkBtn.disabled = empMode ? !getMyCode() : locked;
+      if(bulkEmp) bulkEmp.disabled = locked || empMode;
+      if(bulkVal) bulkVal.disabled = empMode ? false : locked;
     }
 
     function focusFirstEmptyCell(){
@@ -2354,17 +2372,18 @@
     }
 
     function bulkFillMonth(){
-      if(isMonthLocked(currentYear, currentMonth)){
-        const st = document.getElementById('bulkFillStatus');
-        st.textContent = 'Ye month LOCKED hai. Pehle Unlock karo.';
-        st.style.color = '#9b2c2c';
-        return;
-      }
       const empIdx = parseInt(document.getElementById('bulkEmpSelect').value);
-      if(isEmployee() && !canEditRow(empIdx)){
+      if(isEmployee()){
+        if(!canEditRow(empIdx)){
+          const st = document.getElementById('bulkFillStatus');
+          if(st){ st.textContent = 'Sirf apna attendance bulk fill kar sakte ho.'; st.style.color = '#9b2c2c'; }
+          showStatus('Sirf apni row', true);
+          return;
+        }
+        // employee: month lock ignore for own row
+      } else if(isMonthLocked(currentYear, currentMonth)){
         const st = document.getElementById('bulkFillStatus');
-        if(st){ st.textContent = 'Sirf apna attendance bulk fill kar sakte ho.'; st.style.color = '#9b2c2c'; }
-        showStatus('Sirf apni row', true);
+        if(st){ st.textContent = 'Ye month LOCKED hai. Pehle Unlock karo.'; st.style.color = '#9b2c2c'; }
         return;
       }
       const val = document.getElementById('bulkValueSelect').value;
@@ -2520,6 +2539,16 @@
     }
 
     function normalizeInput(el){
+      if(!el) return;
+      // Employee doosri row pe type koshish kare to block
+      try {
+        const id = el.id || '';
+        const m = id.match(/^att_(\d+)_/);
+        if(m && isEmployee() && !canEditRow(parseInt(m[1], 10))){
+          el.value = el.defaultValue || el.value;
+          return;
+        }
+      } catch(e) {}
       let v = el.value.trim();
       if(/^[a-zA-Z]+$/.test(v)) el.value = v.toUpperCase();
       colorizeCell(el);
@@ -2568,6 +2597,8 @@
     }
 
     function updateSummary(empIdx){
+      if(isEmployee() && !canEditRow(empIdx)) return;
+
       const days = getDaysInMonth(currentYear, currentMonth);
       const rates = loadRatesFor(currentYear, currentMonth);
       const att = {};
