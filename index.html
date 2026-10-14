@@ -544,8 +544,8 @@
         <p id="adminPassStatus" style="font-size:0.8rem;color:#276749;"></p>
       </div>
       <div class="settings-box">
-        <h3>🔒 Salary Rates / Backup / Settings — Tab Password</h3>
-        <p>Ye password sirf <b>Salary Rates</b>, <b>Backup</b> aur <b>Settings</b> ke liye. <b>Admin login password se alag</b>. Admin login ke baad bhi ye 3 tabs password maangenge.</p>
+        <h3>🔒 Rates / Backup / Settings / Security — Tab Password</h3>
+        <p>Ye password <b>Salary Rates</b>, <b>Backup</b>, <b>Settings</b> aur <b>Security</b> tabs ke liye. <b>Admin login password se alag</b>.</p>
         <p id="tabsPassBadge" style="font-weight:700;"></p>
         <div class="row" id="currentTabsPassRow" style="display:none;">
           <input type="password" id="currentTabsPass" placeholder="Current password (badalne ke liye zaroori)" style="flex:1;">
@@ -1708,7 +1708,7 @@
     let currentTab = 'att';
 
     let protectedUnlocked = false;
-    const PROTECTED_TABS = ['rates', 'backup', 'settings'];
+    const PROTECTED_TABS = ['rates', 'backup', 'settings', 'security'];
 
     // ----- Custom password modal (native prompt() password ko plain-text dikhata tha, isliye masked input wala apna modal) -----
     let passwordPromptCallback = null;
@@ -1761,7 +1761,7 @@
       if(PROTECTED_TABS.includes(name) && !protectedUnlocked){
         const stored = localStorage.getItem(tabsPassKey());
         if(stored){
-          askPassword('3-Tab password (Rates / Backup / Settings):', stored, function(){
+          askPassword('Password (Rates / Backup / Settings / Security):', stored, function(){
             protectedUnlocked = true;
             performSwitchTab(name, fromPopstate);
           }, function(){
