@@ -150,7 +150,15 @@
     .settings-box .row { margin-bottom: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 100; align-items: center; justify-content: center; }
     .att-cell { position: relative; }
-    .att-cell.has-note::after { content: ''; position: absolute; top: 2px; right: 2px; width: 8px; height: 8px; border-radius: 50%; background: #d69e2e; border: 1px solid #fff; pointer-events: none; z-index: 2; }
+    .att-cell.has-note::after { content: ''; position: absolute; top: 2px; right: 2px; width: 9px; height: 9px; border-radius: 50%; background: #d69e2e; border: 1px solid #fff; pointer-events: none; z-index: 2; }
+    .att-cell.has-note { box-shadow: inset 0 0 0 1px rgba(214,158,46,0.35); }
+    .att-cell[title]:hover::before {
+      content: attr(title);
+      position: absolute; left: 50%; bottom: calc(100% + 6px); transform: translateX(-50%);
+      background: #2d3748; color: #fff; font-size: 0.72rem; line-height: 1.3;
+      padding: 6px 8px; border-radius: 6px; white-space: pre-wrap; max-width: 220px;
+      z-index: 20; pointer-events: none; box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
     .modal-overlay.show { display: flex; }
     .modal { background: #fff; border-radius: 10px; padding: 24px; width: 90%; max-width: 360px; box-shadow: 0 10px 40px rgba(0,0,0,0.25); }
     .modal h3 { margin-bottom: 14px; color: #2c5282; }
@@ -1643,12 +1651,13 @@
           } else {
             can = false;
           }
+          // Note hover/tap ke liye pointer hamesha ON; type sirf Admin+unlocked
           inp.readOnly = !can;
-          inp.disabled = empMode || !can;
-          if(adminMode && can) inp.disabled = false;
+          inp.disabled = false;
           inp.classList.toggle('role-locked', !can);
-          inp.style.opacity = can ? '' : '0.85';
-          inp.style.pointerEvents = can ? '' : 'none';
+          inp.style.opacity = can ? '' : '0.9';
+          inp.style.pointerEvents = '';
+          inp.style.cursor = can ? 'text' : 'default';
         }
       }
       const bulkBtn = document.getElementById('btnBulkFill');
@@ -2131,7 +2140,11 @@
           const val = att[d] || '';
           const noteText = (data.notes && data.notes[i] && data.notes[i][d]) ? data.notes[i][d] : '';
           const hasNote = noteText.trim() !== '';
-          html += '<td class="att-cell'+(hasNote?' has-note':'')+'"><input class="att-input" id="att_'+i+'_'+d+'" value="'+esc(val)+'" maxlength="5" oninput="normalizeInput(this);updateSummary('+i+');scheduleLiveSync()" onchange="updateSummary('+i+');scheduleLiveSync()" onblur="normalizeInput(this);updateSummary('+i+');scheduleLiveSync()" ondblclick="openNotesModal('+i+','+d+')" onkeydown="attCellKeyNav(event,'+i+','+d+')" title="'+esc(noteText)+'"></td>';
+          const noteTip = hasNote ? esc(noteText) : '';
+          html += '<td class="att-cell'+(hasNote?' has-note':'')+'" title="'+noteTip+'" data-emp="'+i+'" data-day="'+d+'" onclick="onAttCellNoteClick(event,'+i+','+d+')">';
+          html += '<input class="att-input" id="att_'+i+'_'+d+'" value="'+esc(val)+'" maxlength="5" title="'+noteTip+'" ';
+          html += 'oninput="normalizeInput(this);updateSummary('+i+');scheduleLiveSync()" onchange="updateSummary('+i+');scheduleLiveSync()" onblur="normalizeInput(this);updateSummary('+i+');scheduleLiveSync()" ';
+          html += 'ondblclick="openNotesModal('+i+','+d+')" onkeydown="attCellKeyNav(event,'+i+','+d+')"></td>';
         }
         html += '<td class="summary-cell" id="sum_h_'+i+'" tabindex="0" onkeydown="summaryCellKeyNav(event,'+i+',0,'+days+')">'+sum.h+'</td>';
         html += '<td class="summary-cell" id="sum_l_'+i+'" tabindex="0" onkeydown="summaryCellKeyNav(event,'+i+',1,'+days+')">'+sum.l+'</td>';
@@ -2286,6 +2299,22 @@
     }
 
     // ----- NOTES -----
+    function canEditNotes(){
+      return isAdmin() && !isMonthLocked(currentYear, currentMonth);
+    }
+    function onAttCellNoteClick(ev, empIdx, day){
+      // Mobile / locked / employee: note wali cell pe tap → note dikhao
+      try {
+        const note = (data.notes && data.notes[empIdx] && data.notes[empIdx][day]) ? String(data.notes[empIdx][day]).trim() : '';
+        if(!note) return; // khali cell pe single click ignore (type ke liye)
+        // agar input pe typing focus hai aur admin edit kar sakta — note force open mat
+        if(canEditNotes() && ev && ev.target && ev.target.classList && ev.target.classList.contains('att-input')){
+          // single click = focus type; note ke liye double-click / peela area
+          return;
+        }
+        openNotesModal(empIdx, day);
+      } catch(e) {}
+    }
     function openNotesModal(empIdx, day){
       refreshEmployeeSelect('noteEmpSelect', false);
       const daySel = document.getElementById('noteDaySelect');
@@ -2301,6 +2330,24 @@
       if(typeof empIdx === 'number') document.getElementById('noteEmpSelect').value = empIdx;
       if(typeof day === 'number') daySel.value = day;
       onNoteEmpOrDayChange();
+      const can = canEditNotes();
+      const ta = document.getElementById('noteText');
+      if(ta){
+        ta.readOnly = !can;
+        ta.style.background = can ? '' : '#f7fafc';
+      }
+      const empSel = document.getElementById('noteEmpSelect');
+      const dSel = document.getElementById('noteDaySelect');
+      if(empSel) empSel.disabled = !can;
+      if(dSel) dSel.disabled = !can;
+      const saveBtn = document.querySelector('#notesModal .btn-success');
+      const delBtn = document.querySelector('#notesModal .btn-danger, #notesModal button[onclick*="deleteNote"]');
+      document.querySelectorAll('#notesModal button').forEach(function(b){
+        const t = (b.textContent||'').toLowerCase();
+        if(t.indexOf('save') >= 0 || t.indexOf('delete') >= 0){
+          b.style.display = can ? '' : 'none';
+        }
+      });
       document.getElementById('notesModal').classList.add('show');
     }
 
@@ -2334,6 +2381,10 @@
     }
 
     function saveNoteEntry(){
+      if(!canEditNotes()){
+        showStatus('Note sirf Admin + unlocked month me edit', true);
+        return;
+      }
       const empIdx = parseInt(document.getElementById('noteEmpSelect').value);
       const day = parseInt(document.getElementById('noteDaySelect').value);
       const text = document.getElementById('noteText').value.trim();
