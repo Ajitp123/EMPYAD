@@ -203,7 +203,7 @@
   <div id="loginOverlay">
     <div class="login-card">
       <h2>Attendance Login</h2>
-      <p class="login-sub" style="display:none;"></p>
+      <p class="login-sub" style="display:none;">Admin fills · Employee views only</p>
       <div class="login-mode-row">
         <button type="button" id="loginModeEmp" class="active" onclick="setLoginMode('employee')">Employee</button>
         <button type="button" id="loginModeAdmin" onclick="setLoginMode('admin')">Admin</button>
@@ -522,7 +522,7 @@
     <div id="tab-security" class="tab-panel">
       <div class="settings-box" id="empPinBox">
         <h3>👤 Employee Login PINs</h3>
-        <p id="empPinHint" style="font-size:0.8rem;color:#4a5568;">Har employee ka Code + PIN. Employee login pe sirf apni row edit.</p>
+        <p id="empPinHint" style="font-size:0.8rem;color:#4a5568;">Har employee ka Code + PIN. Employee login = sirf dekhna (attendance fill nahi).</p>
         <div id="empPinList"></div>
         <button class="btn btn-success" onclick="saveEmpPins()" style="margin-top:8px;">Save PINs</button>
         <p id="empPinStatus" style="font-size:0.8rem;color:#276749;"></p>
@@ -794,19 +794,11 @@
       return s && s.role === 'employee' ? String(s.code||'').trim().toUpperCase() : '';
     }
     function canEditRow(i){
-      // Admin / no session: sab rows (login overlay alag handle)
+      // Sirf Admin attendance / code / name edit kar sake
       if(isAdmin()) return true;
-      if(!getSession()) return true;
-      if(!isEmployee()) return true;
-      const my = getMyCode();
-      if(!my) return false;
-      let c = '';
-      const codeEl = document.getElementById('code_'+i);
-      if(codeEl) c = String(codeEl.value || '').trim();
-      if(!c && data && data.employees && data.employees[i]){
-        c = String(data.employees[i].code || '').trim();
-      }
-      return c.toUpperCase() === my;
+      if(!getSession()) return false;
+      // Employee = sirf dekhna
+      return false;
     }
     function loadEmpPins(){
       try {
@@ -985,7 +977,7 @@
             }
           }
         } catch(e) {}
-        txt.innerHTML = 'Role: <b>Employee</b> — Code <b>'+esc(code)+'</b>'+(name ? ' <b>'+esc(name)+'</b>' : '');
+        txt.innerHTML = 'Role: <b>Employee</b> — Code <b>'+esc(code)+'</b>'+(name ? ' <b>'+esc(name)+'</b>' : '')+' <span style="color:#718096;">(view only)</span>';
       }
     }
 
@@ -1543,20 +1535,7 @@
           if(typeof syncingFromCloud !== 'undefined' && syncingFromCloud) return;
           if(isMonthLocked(currentYear, currentMonth) && !isEmployee()) return;
           if(!document.getElementById('code_0')) return;
-          // Employee: sirf jab active cell uski row ho
-          if(isEmployee()){
-            const ae = document.activeElement;
-            let ok = false;
-            if(ae && ae.id){
-              const m = ae.id.match(/^att_(\d+)_/);
-              if(m && canEditRow(parseInt(m[1],10))) ok = true;
-            }
-            if(!ok){
-              // phir bhi save allowed (blur ke baad) — canEditRow any own
-              for(let i=0;i<MAX_EMP;i++){ if(canEditRow(i)){ ok = true; break; } }
-            }
-            if(!ok) return;
-          }
+          if(isEmployee()) return; // employee save nahi
           savePeriod({ silent: true });
         } catch(e) { console.error('live sync', e); }
       }, 350);
@@ -1654,34 +1633,39 @@
         for(let d=1; d<=days; d++){
           const inp = document.getElementById('att_'+i+'_'+d);
           if(!inp) continue;
-          // Employee: apni row HAMESHA fill (month lock ignore)
-          // Admin: month lock maane — sab rows tabhi jab unlocked
+          // Employee: koi bhi cell edit nahi
+          // Admin: unlocked month me sab edit
           let can = false;
           if(empMode){
-            can = rowOk; // own row only; lock se farak nahi
+            can = false;
           } else if(adminMode){
             can = !locked;
           } else {
-            can = !locked;
+            can = false;
           }
           inp.readOnly = !can;
-          if(empMode && !rowOk){
-            inp.disabled = true;
-          } else {
-            inp.disabled = false;
-          }
+          inp.disabled = empMode || !can;
+          if(adminMode && can) inp.disabled = false;
           inp.classList.toggle('role-locked', !can);
-          inp.style.opacity = can ? '' : '0.8';
+          inp.style.opacity = can ? '' : '0.85';
           inp.style.pointerEvents = can ? '' : 'none';
         }
       }
       const bulkBtn = document.getElementById('btnBulkFill');
       const bulkEmp = document.getElementById('bulkEmpSelect');
       const bulkVal = document.getElementById('bulkValueSelect');
-      // Employee bulk: apni row, lock ignore
-      if(bulkBtn) bulkBtn.disabled = empMode ? !getMyCode() : locked;
-      if(bulkEmp) bulkEmp.disabled = locked || empMode;
-      if(bulkVal) bulkVal.disabled = empMode ? false : locked;
+      // Bulk fill sirf Admin
+      if(bulkBtn) bulkBtn.disabled = locked || empMode || !adminMode;
+      if(bulkEmp) bulkEmp.disabled = locked || empMode || !adminMode;
+      if(bulkVal) bulkVal.disabled = locked || empMode || !adminMode;
+      // Hide bulk section for employee optional via CSS class on parent
+      try {
+        const bulkBox = document.getElementById('btnBulkFill');
+        if(bulkBox){
+          let box = bulkBox.closest('.settings-box') || bulkBox.parentElement;
+          if(box) box.style.display = empMode ? 'none' : '';
+        }
+      } catch(e) {}
     }
 
     function focusFirstEmptyCell(){
@@ -2586,16 +2570,12 @@
     }
 
     function bulkFillMonth(){
-      const empIdx = parseInt(document.getElementById('bulkEmpSelect').value);
       if(isEmployee()){
-        if(!canEditRow(empIdx)){
-          const st = document.getElementById('bulkFillStatus');
-          if(st){ st.textContent = 'Sirf apna attendance bulk fill kar sakte ho.'; st.style.color = '#9b2c2c'; }
-          showStatus('Sirf apni row', true);
-          return;
-        }
-        // employee: month lock ignore for own row
-      } else if(isMonthLocked(currentYear, currentMonth)){
+        showStatus('Sirf Admin attendance bhar sakta hai', true);
+        return;
+      }
+      const empIdx = parseInt(document.getElementById('bulkEmpSelect').value);
+      if(isMonthLocked(currentYear, currentMonth)){
         const st = document.getElementById('bulkFillStatus');
         if(st){ st.textContent = 'Ye month LOCKED hai. Pehle Unlock karo.'; st.style.color = '#9b2c2c'; }
         return;
@@ -4335,19 +4315,16 @@
             return doSet(valStr, localT);
           }
 
-          // EMPLOYEE: merge only my row into latest cloud
-          const myCode = getMyCode();
-          const merged = mergeEmployeeRowIntoRemote(remoteV, localObj, myCode);
-          const mergedStr = JSON.stringify(merged);
-          const mergedT = Number(merged._updatedAt) || Date.now();
-          // Also update local full picture from merge so UI matches cloud others
-          try {
-            localStorage.setItem(key, mergedStr);
-            if(key === storageKey(currentYear, currentMonth)){
-              data = loadPeriod(currentYear, currentMonth);
-            }
-          } catch(e) {}
-          return doSet(mergedStr, mergedT);
+          // Employee write nahi — sirf cloud se dekhna
+          if(remoteV != null){
+            try {
+              localStorage.setItem(key, remoteV);
+              if(key === storageKey(currentYear, currentMonth)){
+                data = loadPeriod(currentYear, currentMonth);
+              }
+            } catch(e) {}
+          }
+          return null;
         }).catch(function(e){
           console.error('cloud push', key, e);
           queuePendingPush(key);
