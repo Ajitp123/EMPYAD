@@ -1238,11 +1238,17 @@
 
     function afterLocalWrite(key){
       try {
+        if(!navigator.onLine || !fbReady){
+          try { queuePendingPush(key); } catch(e) {}
+          return;
+        }
         if(typeof cloudPushKey === 'function'){
           const val = localStorage.getItem(key);
           if(val !== null) cloudPushKey(key, val);
         }
-      } catch(e) {}
+      } catch(e) {
+        try { queuePendingPush(key); } catch(err) {}
+      }
     }
 
     function ratesKey(y,m){ return 'att_rates_'+y+'_'+m; }
@@ -1527,7 +1533,6 @@
     function scheduleLiveSync(){
       markUserEdited();
       if(typeof syncingFromCloud !== 'undefined' && syncingFromCloud) return;
-      // Employee apni attendance lock ke baad bhi save/sync kar sake
       if(isMonthLocked(currentYear, currentMonth) && !isEmployee()) return;
       if(!liveSyncEnabled) return;
       if(liveSyncTimer) clearTimeout(liveSyncTimer);
@@ -1537,6 +1542,20 @@
           if(typeof syncingFromCloud !== 'undefined' && syncingFromCloud) return;
           if(isMonthLocked(currentYear, currentMonth) && !isEmployee()) return;
           if(!document.getElementById('code_0')) return;
+          // Employee: sirf jab active cell uski row ho
+          if(isEmployee()){
+            const ae = document.activeElement;
+            let ok = false;
+            if(ae && ae.id){
+              const m = ae.id.match(/^att_(\d+)_/);
+              if(m && canEditRow(parseInt(m[1],10))) ok = true;
+            }
+            if(!ok){
+              // phir bhi save allowed (blur ke baad) — canEditRow any own
+              for(let i=0;i<MAX_EMP;i++){ if(canEditRow(i)){ ok = true; break; } }
+            }
+            if(!ok) return;
+          }
           savePeriod({ silent: true });
         } catch(e) { console.error('live sync', e); }
       }, 350);
@@ -3940,10 +3959,44 @@
       if(key === FB_CFG_KEY || key === FB_OFFICE_KEY) return false;
       if(key === sessionKey()) return false;
       if(key === savedLoginKey()) return false;
+      // Cloud backup chunks — localStorage me mat rakho (quota exceed)
+      if(String(key).indexOf('att_cloud_backup') === 0) return false;
       if(key === empCountKey()) return true;
       if(key === empPinsKey()) return true;
       if(key === adminPassKey()) return true;
       return key.indexOf('att_') === 0;
+    }
+    function safeLocalSet(key, val){
+      try {
+        localStorage.setItem(key, val);
+        return true;
+      } catch(e){
+        // Quota — purane cloud backup leftovers saaf karo
+        try {
+          const toDel = [];
+          for(let i=0; i<localStorage.length; i++){
+            const k = localStorage.key(i);
+            if(k && String(k).indexOf('att_cloud_backup') === 0) toDel.push(k);
+          }
+          toDel.forEach(function(k){ try { localStorage.removeItem(k); } catch(err) {} });
+          localStorage.setItem(key, val);
+          return true;
+        } catch(e2){
+          console.warn('localStorage quota', key, e2);
+          return false;
+        }
+      }
+    }
+    function clearLocalCloudBackupJunk(){
+      try {
+        const toDel = [];
+        for(let i=0; i<localStorage.length; i++){
+          const k = localStorage.key(i);
+          if(k && String(k).indexOf('att_cloud_backup') === 0) toDel.push(k);
+        }
+        toDel.forEach(function(k){ try { localStorage.removeItem(k); } catch(e) {} });
+        return toDel.length;
+      } catch(e){ return 0; }
     }
 
     async function initFirebaseSync(){
@@ -4014,22 +4067,21 @@
               const localVal = localStorage.getItem(key);
               if(localVal === val) return;
 
-              // Last-write-wins by timestamp (live sync reliable)
+              // Last-write-wins: remote.t >= local._updatedAt → apply (delete bhi jeete)
               let localT = 0;
               try {
                 if(localVal){
                   const lp = JSON.parse(localVal);
-                  localT = Number(lp._updatedAt) || Number(payload && 0) || 0;
-                  if(!localT && payload) localT = 0;
+                  localT = Number(lp._updatedAt) || 0;
                 }
               } catch(e){}
               const remoteT = Number(payload.t) || 0;
-              // local newer → remote ignore (humne abhi push kiya / type kar rahe)
-              if(localVal && localT && remoteT && remoteT < localT){
+              // Local strictly newer → cloud ignore, baad me push
+              if(localVal && localT > 0 && remoteT > 0 && remoteT < localT){
                 return;
               }
-              // same content already handled above
-              localStorage.setItem(key, val);
+              if(!safeLocalSet(key, val)) return;
+              try { clearPendingPushKey(key); } catch(e) {}
               changed = true;
               if(key === storageKey(currentYear, currentMonth) || key === ratesKey(currentYear, currentMonth) || key === lockKey(currentYear, currentMonth) || key === empCountKey()){
                 touchCurrent = true;
@@ -4057,6 +4109,7 @@
         });
         fbReady = true;
         liveSyncEnabled = true;
+        try { clearLocalCloudBackupJunk(); } catch(e) {}
         setSyncUI('On · Office: ' + office + ' · Realtime sync ✓', true);
         return true;
       } catch(err){
@@ -4070,6 +4123,15 @@
 
 
     function pendingPushKey(){ return 'att_pending_push_keys'; }
+    function clearPendingPushKey(key){
+      try {
+        let arr = [];
+        const raw = localStorage.getItem(pendingPushKey());
+        if(raw) arr = JSON.parse(raw) || [];
+        arr = arr.filter(function(k){ return k !== key; });
+        localStorage.setItem(pendingPushKey(), JSON.stringify(arr));
+      } catch(e) {}
+    }
     function queuePendingPush(key){
       try {
         let arr = [];
@@ -4102,13 +4164,15 @@
     function onAppOnline(){
       if(!fbReady || !fbDb) return;
       setSyncUI('Online — sync…', true);
-      flushPendingPushes().then(function(){
-        return manualCloudPullQuiet();
+      // PEHLE cloud se naya data lo (delete/fill jo latest ho), PHIR local pending push
+      manualCloudPullQuiet().then(function(){
+        return flushPendingPushes();
       }).then(function(){
-        setSyncUI('On · Office: ' + (getOfficeId()||'') + ' · live', true);
-        showStatus('Net wapas — data sync ho gaya');
+        setSyncUI('On · Office: ' + (getOfficeId()||'') + ' · Realtime sync ✓', true);
+        showStatus('Net ON — latest data sync');
       }).catch(function(e){
         console.error(e);
+        try { flushPendingPushes(); } catch(err) {}
       });
     }
     function manualCloudPullQuiet(){
@@ -4130,8 +4194,9 @@
               let localT = 0;
               try { if(localVal) localT = Number(JSON.parse(localVal)._updatedAt)||0; } catch(e){}
               const remoteT = Number(payload.t)||0;
-              if(localVal && localT && remoteT && remoteT < localT) return;
-              localStorage.setItem(key, val);
+              if(localVal && localT > 0 && remoteT > 0 && remoteT < localT) return;
+              if(!safeLocalSet(key, val)) return;
+              try { clearPendingPushKey(key); } catch(e) {}
               if(key === storageKey(currentYear, currentMonth) || key === ratesKey(currentYear, currentMonth) || key === lockKey(currentYear, currentMonth) || key === empCountKey()){
                 touchCurrent = true;
               }
@@ -4153,38 +4218,121 @@
       const valStr = value == null ? '' : String(value);
       const ref = fbDb.collection('offices').doc(office).collection('data').doc(key);
 
-      // Last-write-wins: push if local is newer or equal; always push user edits
       let localT = Date.now();
+      let localObj = null;
       try {
         if(valStr){
-          const lp = JSON.parse(valStr);
-          if(lp && lp._updatedAt) localT = Number(lp._updatedAt) || localT;
+          localObj = JSON.parse(valStr);
+          if(localObj && localObj._updatedAt) localT = Number(localObj._updatedAt) || localT;
         }
-      } catch(e){}
-      const doSet = function(){
-        return ref.set({ v: valStr, t: localT }, { merge: true });
+      } catch(e){ localObj = null; }
+
+      // Employee: cloud pe sirf APNI row merge — doosre employees ka data overwrite mat karo
+      function mergeEmployeeRowIntoRemote(remoteStr, localPeriod, myCode){
+        let base = null;
+        try { base = remoteStr ? JSON.parse(remoteStr) : null; } catch(e){ base = null; }
+        if(!base || typeof base !== 'object'){
+          base = localPeriod ? JSON.parse(JSON.stringify(localPeriod)) : { employees: [], attendance: {}, notes: {} };
+        }
+        if(!base.employees) base.employees = [];
+        if(!base.attendance) base.attendance = {};
+        if(!base.notes) base.notes = {};
+        const codeU = String(myCode || '').trim().toUpperCase();
+        if(!codeU || !localPeriod) return base;
+
+        // local me meri index
+        let localIdx = -1;
+        const leps = localPeriod.employees || [];
+        for(let i=0; i<leps.length; i++){
+          if(String(leps[i].code||'').trim().toUpperCase() === codeU){ localIdx = i; break; }
+        }
+        if(localIdx < 0) return base;
+
+        // remote me same code ki index
+        let remoteIdx = -1;
+        for(let i=0; i<base.employees.length; i++){
+          if(String(base.employees[i].code||'').trim().toUpperCase() === codeU){ remoteIdx = i; break; }
+        }
+        if(remoteIdx < 0){
+          // naya slot end pe
+          remoteIdx = base.employees.length;
+          base.employees.push({ code: leps[localIdx].code, name: leps[localIdx].name, desig: leps[localIdx].desig || 'COM.OP.' });
+        } else {
+          base.employees[remoteIdx] = {
+            code: leps[localIdx].code || base.employees[remoteIdx].code,
+            name: leps[localIdx].name || base.employees[remoteIdx].name,
+            desig: (leps[localIdx].desig || base.employees[remoteIdx].desig || 'COM.OP.')
+          };
+        }
+        base.attendance[remoteIdx] = {};
+        const latt = (localPeriod.attendance && localPeriod.attendance[localIdx]) ? localPeriod.attendance[localIdx] : {};
+        Object.keys(latt).forEach(function(d){
+          if(latt[d] !== undefined && latt[d] !== null && String(latt[d]).trim() !== ''){
+            base.attendance[remoteIdx][d] = latt[d];
+          }
+        });
+        // notes for my row
+        if(localPeriod.notes && localPeriod.notes[localIdx]){
+          if(!base.notes) base.notes = {};
+          base.notes[remoteIdx] = localPeriod.notes[localIdx];
+        }
+        base._updatedAt = Date.now();
+        return base;
+      }
+
+      const doSet = function(str, t){
+        return ref.set({ v: str, t: t }, { merge: true });
       };
+
       if(isAttendancePeriodKey(key)){
         return ref.get().then(function(doc){
-          if(doc.exists){
-            const remote = doc.data() || {};
-            const remoteT = Number(remote.t) || 0;
-            // Cloud clearly newer → skip overwrite (another device just wrote)
-            if(remoteT > localT + 50){
-              console.warn('Skip older local push', key, localT, remoteT);
+          const remote = doc.exists ? (doc.data() || {}) : {};
+          const remoteT = Number(remote.t) || 0;
+          const remoteV = (typeof remote.v !== 'undefined') ? String(remote.v) : null;
+
+          // Admin / full document push
+          if(!isEmployee()){
+            if(remoteT > localT){
+              // cloud newer — apply, don't overwrite with older admin local
+              if(remoteV != null){
+                localStorage.setItem(key, remoteV);
+                try { clearPendingPushKey(key); } catch(e) {}
+                try {
+                  if(key === storageKey(currentYear, currentMonth)){
+                    data = loadPeriod(currentYear, currentMonth);
+                    if(typeof renderTablePreserveFocus === 'function') renderTablePreserveFocus();
+                    else if(typeof renderTable === 'function') renderTable();
+                  }
+                } catch(e) {}
+              }
               return null;
             }
+            return doSet(valStr, localT);
           }
-          return doSet();
+
+          // EMPLOYEE: merge only my row into latest cloud
+          const myCode = getMyCode();
+          const merged = mergeEmployeeRowIntoRemote(remoteV, localObj, myCode);
+          const mergedStr = JSON.stringify(merged);
+          const mergedT = Number(merged._updatedAt) || Date.now();
+          // Also update local full picture from merge so UI matches cloud others
+          try {
+            localStorage.setItem(key, mergedStr);
+            if(key === storageKey(currentYear, currentMonth)){
+              data = loadPeriod(currentYear, currentMonth);
+            }
+          } catch(e) {}
+          return doSet(mergedStr, mergedT);
         }).catch(function(e){
           console.error('cloud push', key, e);
           queuePendingPush(key);
         });
       }
 
-      return doSet()
+      return doSet(valStr, localT)
         .catch(function(e){ console.error('cloud push', key, e); queuePendingPush(key); });
     }
+
 
     function cloudPushAllLocal(){
       if(!fbReady || !fbDb) return Promise.resolve(0);
@@ -4206,9 +4354,13 @@
     function manualCloudPushAll(){
       if(!fbReady){ showStatus('Pehle Settings me Firebase connect karo', true); return; }
       setSyncUI('Pushing…', true);
+      showStatus('Push All shuru…');
       cloudPushAllLocal().then(function(n){
-        showStatus('Cloud pe push: ' + n + ' items');
-        setSyncUI('On · Office: ' + getOfficeId() + ' · pushed', true);
+        showStatus('Push All complete ✓ — ' + n + ' items cloud pe bhej diye');
+        setSyncUI('On · Office: ' + getOfficeId() + ' · Realtime sync ✓', true);
+      }).catch(function(e){
+        showStatus('Push fail: ' + (e && e.message ? e.message : e), true);
+        setSyncUI('On · Office: ' + getOfficeId() + ' · push error', false);
       });
     }
 
@@ -4216,12 +4368,19 @@
       if(!fbReady || !fbDb){ showStatus('Pehle Settings me Firebase connect karo', true); return; }
       const office = getOfficeId();
       setSyncUI('Pulling…', true);
+      showStatus('Pull Now shuru…');
+      try { clearLocalCloudBackupJunk(); } catch(e) {}
       manualCloudPullQuiet().then(function(){
-        showStatus('Cloud se pull complete');
-        setSyncUI('On · Office: ' + office + ' · pulled', true);
+        showStatus('Pull Now complete ✓ — cloud se data update ho gaya');
+        setSyncUI('On · Office: ' + office + ' · Realtime sync ✓', true);
+        try {
+          data = loadPeriod(currentYear, currentMonth);
+          if(typeof renderTable === 'function') renderTable();
+        } catch(e) {}
       })
         .catch(function(e){
-          showStatus('Pull fail: ' + e.message, true);
+          showStatus('Pull fail: ' + (e && e.message ? e.message : e), true);
+          setSyncUI('On · Office: ' + office + ' · pull error', false);
         });
     }
 
