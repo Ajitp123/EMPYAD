@@ -150,7 +150,7 @@
     .settings-box .row { margin-bottom: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 100; align-items: center; justify-content: center; }
     .att-cell { position: relative; }
-    .att-cell.has-note::after { content: ''; position: absolute; top: 1px; right: 1px; width: 5px; height: 5px; border-radius: 50%; background: #d69e2e; pointer-events: none; }
+    .att-cell.has-note::after { content: ''; position: absolute; top: 2px; right: 2px; width: 8px; height: 8px; border-radius: 50%; background: #d69e2e; border: 1px solid #fff; pointer-events: none; z-index: 2; }
     .modal-overlay.show { display: flex; }
     .modal { background: #fff; border-radius: 10px; padding: 24px; width: 90%; max-width: 360px; box-shadow: 0 10px 40px rgba(0,0,0,0.25); }
     .modal h3 { margin-bottom: 14px; color: #2c5282; }
@@ -1237,18 +1237,18 @@
     function storageKey(y,m){ return 'att_'+y+'_'+m; }
 
     function afterLocalWrite(key){
+      try { queuePendingPush(key); } catch(e) {}
       try {
-        if(!navigator.onLine || !fbReady){
-          try { queuePendingPush(key); } catch(e) {}
-          return;
-        }
+        if(!navigator.onLine || !fbReady) return;
         if(typeof cloudPushKey === 'function'){
           const val = localStorage.getItem(key);
-          if(val !== null) cloudPushKey(key, val);
+          if(val !== null){
+            cloudPushKey(key, val).then(function(){
+              try { clearPendingPushKey(key); } catch(e) {}
+            }).catch(function(){});
+          }
         }
-      } catch(e) {
-        try { queuePendingPush(key); } catch(err) {}
-      }
+      } catch(e) {}
     }
 
     function ratesKey(y,m){ return 'att_rates_'+y+'_'+m; }
@@ -1469,7 +1469,8 @@
       const period = {
         employees: [],
         attendance: {},
-        notes: base.notes || data.notes || {}
+        // notes hamesha data se (saveNote ke baad lose na ho)
+        notes: (data && data.notes) ? JSON.parse(JSON.stringify(data.notes)) : (base.notes ? JSON.parse(JSON.stringify(base.notes)) : {})
       };
       const daysInMonth = getDaysInMonth(currentYear, currentMonth);
       const empMode = isEmployee();
@@ -2359,10 +2360,13 @@
       } else {
         data.notes[empIdx][day] = text;
       }
-      savePeriod();
+      markUserEdited();
+      liveSyncEnabled = true;
+      savePeriod({ silent: false });
       renderTable();
+      try { refreshNoteList(empIdx); } catch(e) {}
       closeNotesModal();
-      showStatus('Note saved.');
+      showStatus('Note saved ✓' + (fbReady ? ' (+ cloud)' : ' (offline — net ON pe sync)'));
     }
 
     function deleteNoteEntry(){
@@ -4076,9 +4080,15 @@
                 }
               } catch(e){}
               const remoteT = Number(payload.t) || 0;
-              // Local strictly newer → cloud ignore, baad me push
-              if(localVal && localT > 0 && remoteT > 0 && remoteT < localT){
+              // Local newer (ya remote time missing/0) → mat mitao
+              if(localVal && localT > 0 && remoteT < localT){
                 return;
+              }
+              // Same time: richer local rakho
+              if(localVal && localT > 0 && remoteT === localT){
+                try {
+                  if(periodFillScore(localVal) > periodFillScore(val)) return;
+                } catch(e) {}
               }
               if(!safeLocalSet(key, val)) return;
               try { clearPendingPushKey(key); } catch(e) {}
@@ -4111,6 +4121,18 @@
         liveSyncEnabled = true;
         try { clearLocalCloudBackupJunk(); } catch(e) {}
         setSyncUI('On · Office: ' + office + ' · Realtime sync ✓', true);
+        // App open (net pehle se ON) — offline queue + latest pull
+        setTimeout(function(){
+          manualCloudPullQuiet().then(function(){
+            return flushPendingPushes();
+          }).then(function(){
+            try {
+              data = loadPeriod(currentYear, currentMonth);
+              if(typeof renderTable === 'function') renderTable();
+            } catch(e) {}
+            setSyncUI('On · Office: ' + office + ' · Realtime sync ✓', true);
+          }).catch(function(e){ console.error(e); try { flushPendingPushes(); } catch(err) {} });
+        }, 400);
         return true;
       } catch(err){
         console.error(err);
@@ -4194,7 +4216,10 @@
               let localT = 0;
               try { if(localVal) localT = Number(JSON.parse(localVal)._updatedAt)||0; } catch(e){}
               const remoteT = Number(payload.t)||0;
-              if(localVal && localT > 0 && remoteT > 0 && remoteT < localT) return;
+              if(localVal && localT > 0 && remoteT < localT) return;
+              if(localVal && localT > 0 && remoteT === localT){
+                try { if(periodFillScore(localVal) > periodFillScore(val)) return; } catch(e) {}
+              }
               if(!safeLocalSet(key, val)) return;
               try { clearPendingPushKey(key); } catch(e) {}
               if(key === storageKey(currentYear, currentMonth) || key === ratesKey(currentYear, currentMonth) || key === lockKey(currentYear, currentMonth) || key === empCountKey()){
@@ -4386,9 +4411,17 @@
 
     // Patch helpers used after local writes
     function afterLocalWrite(key){
+      try { queuePendingPush(key); } catch(e) {}
       try {
-        const val = localStorage.getItem(key);
-        if(val !== null) cloudPushKey(key, val);
+        if(!navigator.onLine || !fbReady) return;
+        if(typeof cloudPushKey === 'function'){
+          const val = localStorage.getItem(key);
+          if(val !== null){
+            cloudPushKey(key, val).then(function(){
+              try { clearPendingPushKey(key); } catch(e) {}
+            }).catch(function(){});
+          }
+        }
       } catch(e) {}
     }
 
