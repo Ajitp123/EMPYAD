@@ -152,13 +152,18 @@
     .att-cell { position: relative; }
     .att-cell.has-note::after { content: ''; position: absolute; top: 2px; right: 2px; width: 9px; height: 9px; border-radius: 50%; background: #d69e2e; border: 1px solid #fff; pointer-events: none; z-index: 2; }
     .att-cell.has-note { box-shadow: inset 0 0 0 1px rgba(214,158,46,0.35); }
-    .att-cell[title]:hover::before {
+    /* sirf note wali cell — khali title se black box mat dikhao */
+    .att-cell.has-note:hover::before,
+    .att-cell.has-note:focus-within::before {
       content: attr(title);
       position: absolute; left: 50%; bottom: calc(100% + 6px); transform: translateX(-50%);
       background: #2d3748; color: #fff; font-size: 0.72rem; line-height: 1.3;
       padding: 6px 8px; border-radius: 6px; white-space: pre-wrap; max-width: 220px;
       z-index: 20; pointer-events: none; box-shadow: 0 4px 12px rgba(0,0,0,0.2);
     }
+    .att-cell.has-note:not([title]):hover::before,
+    .att-cell.has-note[title=""]:hover::before { content: none !important; display: none !important; }
+
     .modal-overlay.show { display: flex; }
     .modal { background: #fff; border-radius: 10px; padding: 24px; width: 90%; max-width: 360px; box-shadow: 0 10px 40px rgba(0,0,0,0.25); }
     .modal h3 { margin-bottom: 14px; color: #2c5282; }
@@ -203,7 +208,43 @@
       padding: 6px 12px; background: #edf2f7; font-size: 0.8rem; color: #2d3748;
     }
     .role-bar b { color: #2c5282; }
-    .att-input.role-locked { background: #f7fafc !important; cursor: not-allowed; }
+    .att-input.role-locked,
+    table.att input.att-input[readonly] {
+      background: transparent !important;
+      cursor: default !important;
+      caret-color: transparent !important;
+      color: inherit;
+      user-select: none !important;
+      -webkit-user-select: none !important;
+      -webkit-touch-callout: none !important;
+      -webkit-tap-highlight-color: transparent !important;
+      touch-action: manipulation;
+    }
+    .att-input.role-locked:focus,
+    table.att input.att-input[readonly]:focus,
+    table.att input.att-input.role-locked:active,
+    table.att input.att-input[readonly]:active {
+      outline: none !important;
+      box-shadow: none !important;
+      border-color: #e2e8f0 !important;
+      background: transparent !important;
+      caret-color: transparent !important;
+    }
+    /* keep attendance colors without focus ring */
+    table.att input.att-input.role-locked.cell-h,
+    table.att input.att-input.role-locked.cell-h:focus { background: #bee3f8 !important; border-color: #63b3ed !important; color: #2c5282 !important; }
+    table.att input.att-input.role-locked.cell-a,
+    table.att input.att-input.role-locked.cell-a:focus,
+    table.att input.att-input.role-locked.cell-l,
+    table.att input.att-input.role-locked.cell-l:focus { background: #fed7d7 !important; border-color: #fc8181 !important; color: #9b2c2c !important; }
+    table.att input.att-input.role-locked.cell-db,
+    table.att input.att-input.role-locked.cell-db:focus,
+    table.att input.att-input.role-locked.cell-hi,
+    table.att input.att-input.role-locked.cell-hi:focus { background: #c6f6d5 !important; border-color: #68d391 !important; color: #22543d !important; }
+    table.att td.att-cell {
+      -webkit-tap-highlight-color: transparent !important;
+    }
+
     </style>
 </head>
 <body>
@@ -1651,13 +1692,29 @@
           } else {
             can = false;
           }
-          // Note hover/tap ke liye pointer hamesha ON; type sirf Admin+unlocked
+          // Note tap OK; focus/cursor bilkul nahi (employee / locked)
           inp.readOnly = !can;
           inp.disabled = false;
           inp.classList.toggle('role-locked', !can);
-          inp.style.opacity = can ? '' : '0.9';
-          inp.style.pointerEvents = '';
+          inp.tabIndex = can ? 0 : -1;
+          inp.style.opacity = '1';
           inp.style.cursor = can ? 'text' : 'default';
+          inp.style.caretColor = can ? '' : 'transparent';
+          if(!can){
+            inp.setAttribute('inputmode', 'none');
+            inp.setAttribute('autocomplete', 'off');
+            inp.onfocus = function(){ try { this.blur(); } catch(e) {} };
+            inp.onmousedown = function(e){ e.preventDefault(); try { this.blur(); } catch(err) {} };
+            inp.ontouchstart = function(e){
+              // allow note open via parent td click; block caret
+              try { this.blur(); } catch(err) {}
+            };
+          } else {
+            inp.removeAttribute('inputmode');
+            inp.onfocus = null;
+            inp.onmousedown = null;
+            inp.ontouchstart = null;
+          }
         }
       }
       const bulkBtn = document.getElementById('btnBulkFill');
@@ -2141,8 +2198,8 @@
           const noteText = (data.notes && data.notes[i] && data.notes[i][d]) ? data.notes[i][d] : '';
           const hasNote = noteText.trim() !== '';
           const noteTip = hasNote ? esc(noteText) : '';
-          html += '<td class="att-cell'+(hasNote?' has-note':'')+'" title="'+noteTip+'" data-emp="'+i+'" data-day="'+d+'" onclick="onAttCellNoteClick(event,'+i+','+d+')">';
-          html += '<input class="att-input" id="att_'+i+'_'+d+'" value="'+esc(val)+'" maxlength="5" title="'+noteTip+'" ';
+          html += '<td class="att-cell'+(hasNote?' has-note':'')+'"'+(hasNote?' title="'+noteTip+'"':'')+' data-emp="'+i+'" data-day="'+d+'" onclick="onAttCellNoteClick(event,'+i+','+d+')">';
+          html += '<input class="att-input" id="att_'+i+'_'+d+'" value="'+esc(val)+'" maxlength="5"'+(hasNote?' title="'+noteTip+'"':'')+' ';
           html += 'oninput="normalizeInput(this);updateSummary('+i+');scheduleLiveSync()" onchange="updateSummary('+i+');scheduleLiveSync()" onblur="normalizeInput(this);updateSummary('+i+');scheduleLiveSync()" ';
           html += 'ondblclick="openNotesModal('+i+','+d+')" onkeydown="attCellKeyNav(event,'+i+','+d+')"></td>';
         }
