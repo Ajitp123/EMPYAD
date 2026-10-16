@@ -1197,7 +1197,7 @@
           const codeE = document.getElementById('code_'+i);
           const nameE = document.getElementById('name_'+i);
           let c = codeE ? codeE.value.trim() : '';
-          let nm = nameE ? nameE.value.trim() : '';
+          let nm = nameE ? (typeof storageNameFromDisplay === 'function' ? storageNameFromDisplay(nameE.value) : nameE.value.trim()) : '';
           if(!c && data.employees && data.employees[i]) c = String(data.employees[i].code||'').trim();
           if(!nm && data.employees && data.employees[i]) nm = String(data.employees[i].name||'').trim();
           newEmps.push({ code: c, name: nm, desig: 'COM.OP.' });
@@ -1215,6 +1215,8 @@
           if(data.notes && data.notes[i]) newNotes[ni] = data.notes[i];
           ni++;
         }
+
+        const next = Math.max(1, ni);
 
         // Rates align with remaining rows
         try {
