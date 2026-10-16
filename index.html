@@ -580,7 +580,7 @@
     <div id="tab-security" class="tab-panel">
       <div class="settings-box" id="empPinBox">
         <h3>👤 Employee Login PINs</h3>
-        <p id="empPinHint" style="font-size:0.8rem;color:#4a5568;">Har employee ka Code + PIN. Employee login = sirf dekhna (attendance fill nahi).</p>
+        <p id="empPinHint" style="font-size:0.8rem;color:#4a5568;">Har employee ka Code + PIN. Employee login pe sirf apni row fill.</p>
         <div id="empPinList"></div>
         <button class="btn btn-success" onclick="saveEmpPins()" style="margin-top:8px;">Save PINs</button>
         <p id="empPinStatus" style="font-size:0.8rem;color:#276749;"></p>
@@ -852,12 +852,20 @@
       return s && s.role === 'employee' ? String(s.code||'').trim().toUpperCase() : '';
     }
     function canEditRow(i){
-      // Sirf Admin attendance / code / name edit kar sake
       if(isAdmin()) return true;
       if(!getSession()) return false;
-      // Employee = sirf dekhna
-      return false;
+      if(!isEmployee()) return false;
+      const my = getMyCode();
+      if(!my) return false;
+      let c = '';
+      const codeEl = document.getElementById('code_'+i);
+      if(codeEl) c = String(codeEl.value || '').trim();
+      if(!c && data && data.employees && data.employees[i]){
+        c = String(data.employees[i].code || '').trim();
+      }
+      return c.toUpperCase() === my;
     }
+
     function loadEmpPins(){
       try {
         const raw = localStorage.getItem(empPinsKey());
@@ -1035,7 +1043,7 @@
             }
           }
         } catch(e) {}
-        txt.innerHTML = 'Role: <b>Employee</b> — Code <b>'+esc(code)+'</b>'+(name ? ' <b>'+esc(name)+'</b>' : '')+' <span style="color:#718096;">(view only)</span>';
+        txt.innerHTML = '<b>'+esc(code)+'</b>'+(name ? ' <b>'+esc(name)+'</b>' : '');
       }
     }
 
@@ -1595,11 +1603,17 @@
           if(typeof syncingFromCloud !== 'undefined' && syncingFromCloud) return;
           if(isMonthLocked(currentYear, currentMonth) && !isEmployee()) return;
           if(!document.getElementById('code_0')) return;
-          if(isEmployee()) return; // employee save nahi
+          if(isEmployee()){
+            // sirf apni row edit ke baad
+            let ok = false;
+            for(let i=0; i<MAX_EMP; i++){ if(canEditRow(i)){ ok = true; break; } }
+            if(!ok) return;
+          }
           savePeriod({ silent: true });
         } catch(e) { console.error('live sync', e); }
       }, 350);
     }
+
 
     function renderTablePreserveFocus(){
       const ae = document.activeElement;
@@ -1669,7 +1683,7 @@
       const btnUn = document.getElementById('btnUnlock');
       if(badge) badge.style.display = locked ? 'inline-block' : 'none';
       if(btnUn){
-        btnUn.style.display = locked && isAdmin() ? 'inline-block' : (locked && !isEmployee() ? 'inline-block' : 'none');
+        btnUn.style.display = locked && isAdmin() ? 'inline-block' : 'none';
         if(isEmployee()) btnUn.style.display = 'none';
       }
       const days = getDaysInMonth(currentYear, currentMonth);
@@ -1679,31 +1693,25 @@
         const codeEl = document.getElementById('code_'+i);
         const nameEl = document.getElementById('name_'+i);
         const rowOk = canEditRow(i);
-        // Code / Name: sirf Admin (unlocked)
+        // Code/Name: sirf Admin
         if(codeEl){
-          codeEl.readOnly = locked || empMode || !adminMode;
-          if(!getSession()) codeEl.readOnly = locked;
+          codeEl.readOnly = empMode || !adminMode || locked;
           if(adminMode) codeEl.readOnly = locked;
         }
         if(nameEl){
-          nameEl.readOnly = locked || empMode || !adminMode;
-          if(!getSession()) nameEl.readOnly = locked;
+          nameEl.readOnly = empMode || !adminMode || locked;
           if(adminMode) nameEl.readOnly = locked;
         }
         for(let d=1; d<=days; d++){
           const inp = document.getElementById('att_'+i+'_'+d);
           if(!inp) continue;
-          // Employee: koi bhi cell edit nahi
-          // Admin: unlocked month me sab edit
+          // Employee: sirf apni row (lock ignore)
+          // Admin: unlocked month
           let can = false;
-          if(empMode){
-            can = false;
-          } else if(adminMode){
-            can = !locked;
-          } else {
-            can = false;
-          }
-          // Note tap OK; focus/cursor bilkul nahi (employee / locked)
+          if(empMode) can = rowOk;
+          else if(adminMode) can = !locked;
+          else can = false;
+
           inp.readOnly = !can;
           inp.disabled = false;
           inp.classList.toggle('role-locked', !can);
@@ -1713,13 +1721,9 @@
           inp.style.caretColor = can ? '' : 'transparent';
           if(!can){
             inp.setAttribute('inputmode', 'none');
-            inp.setAttribute('autocomplete', 'off');
             inp.onfocus = function(){ try { this.blur(); } catch(e) {} };
             inp.onmousedown = function(e){ e.preventDefault(); try { this.blur(); } catch(err) {} };
-            inp.ontouchstart = function(e){
-              // allow note open via parent td click; block caret
-              try { this.blur(); } catch(err) {}
-            };
+            inp.ontouchstart = function(){ try { this.blur(); } catch(err) {} };
           } else {
             inp.removeAttribute('inputmode');
             inp.onfocus = null;
@@ -1731,19 +1735,29 @@
       const bulkBtn = document.getElementById('btnBulkFill');
       const bulkEmp = document.getElementById('bulkEmpSelect');
       const bulkVal = document.getElementById('bulkValueSelect');
-      // Bulk fill sirf Admin
-      if(bulkBtn) bulkBtn.disabled = locked || empMode || !adminMode;
-      if(bulkEmp) bulkEmp.disabled = locked || empMode || !adminMode;
-      if(bulkVal) bulkVal.disabled = locked || empMode || !adminMode;
-      // Hide bulk section for employee optional via CSS class on parent
+      if(bulkBtn) bulkBtn.disabled = empMode ? !getMyCode() : (locked || !adminMode);
+      if(bulkEmp) bulkEmp.disabled = empMode || locked || !adminMode;
+      if(bulkVal) bulkVal.disabled = empMode ? false : (locked || !adminMode);
       try {
         const bulkBox = document.getElementById('btnBulkFill');
         if(bulkBox){
           let box = bulkBox.closest('.settings-box') || bulkBox.parentElement;
-          if(box) box.style.display = empMode ? 'none' : '';
+          if(box) box.style.display = '';
+        }
+        // Employee bulk: fix select to self
+        if(empMode && bulkEmp){
+          const my = getMyCode();
+          for(let i=0; i<MAX_EMP; i++){
+            const c = document.getElementById('code_'+i);
+            if(c && c.value.trim().toUpperCase() === my){
+              bulkEmp.value = String(i);
+              break;
+            }
+          }
         }
       } catch(e) {}
     }
+
 
     function focusFirstEmptyCell(){
       const days = getDaysInMonth(currentYear, currentMonth);
@@ -2689,12 +2703,13 @@
     }
 
     function bulkFillMonth(){
-      if(isEmployee()){
-        showStatus('Sirf Admin attendance bhar sakta hai', true);
-        return;
-      }
       const empIdx = parseInt(document.getElementById('bulkEmpSelect').value);
-      if(isMonthLocked(currentYear, currentMonth)){
+      if(isEmployee()){
+        if(!canEditRow(empIdx)){
+          showStatus('Sirf apna attendance bulk fill kar sakte ho', true);
+          return;
+        }
+      } else if(isMonthLocked(currentYear, currentMonth)){
         const st = document.getElementById('bulkFillStatus');
         if(st){ st.textContent = 'Ye month LOCKED hai. Pehle Unlock karo.'; st.style.color = '#9b2c2c'; }
         return;
@@ -2705,7 +2720,7 @@
       if(toD < fromD){ const t = fromD; fromD = toD; toD = t; }
       const empNameEl = document.getElementById('name_'+empIdx);
       const empName = empNameEl ? (empNameEl.value.trim() || 'is employee') : 'is employee';
-      const ok = confirm(MONTHS[currentMonth] + ' ' + currentYear + ' — ' + empName + ' ki ' + fromD + ' se ' + toD + ' tarikh "' + val + '" se bhar di jayegi. Purane values overwrite ho jayenge. Continue?');
+      const ok = confirm(MONTHS[currentMonth] + ' ' + currentYear + ' — ' + empName + ' ki ' + fromD + ' se ' + toD + ' tarikh "' + val + '" se bhar di jayegi. Continue?');
       if(!ok) return;
       let filled = 0;
       for(let d=fromD; d<=toD; d++){
@@ -2717,11 +2732,16 @@
         }
       }
       updateSummary(empIdx);
+      markUserEdited();
+      liveSyncEnabled = true;
       savePeriod();
       const st = document.getElementById('bulkFillStatus');
-      st.textContent = MONTHS[currentMonth] + ' ' + currentYear + ' — ' + empName + ' ki ' + fromD + ' se ' + toD + ' tarikh (' + filled + ' din) "' + val + '" se bhar di gayi aur save ho gayi.';
-      st.style.color = '#276749';
+      if(st){
+        st.textContent = MONTHS[currentMonth] + ' ' + currentYear + ' — ' + empName + ' (' + filled + ' din) "' + val + '" — save.';
+        st.style.color = '#276749';
+      }
     }
+
 
     function autoFillTodayPresent(manualClick){
       const today = new Date();
@@ -4434,16 +4454,62 @@
             return doSet(valStr, localT);
           }
 
-          // Employee write nahi — sirf cloud se dekhna
-          if(remoteV != null){
-            try {
-              localStorage.setItem(key, remoteV);
-              if(key === storageKey(currentYear, currentMonth)){
-                data = loadPeriod(currentYear, currentMonth);
+          // EMPLOYEE: cloud pe sirf APNI row merge (doosre overwrite mat)
+          const myCode = getMyCode();
+          function mergeEmployeeRowIntoRemote(remoteStr, localPeriod, myCode){
+            let base = null;
+            try { base = remoteStr ? JSON.parse(remoteStr) : null; } catch(e){ base = null; }
+            if(!base || typeof base !== 'object'){
+              base = localPeriod ? JSON.parse(JSON.stringify(localPeriod)) : { employees: [], attendance: {}, notes: {} };
+            }
+            if(!base.employees) base.employees = [];
+            if(!base.attendance) base.attendance = {};
+            if(!base.notes) base.notes = {};
+            const codeU = String(myCode || '').trim().toUpperCase();
+            if(!codeU || !localPeriod) return base;
+            let localIdx = -1;
+            const leps = localPeriod.employees || [];
+            for(let i=0; i<leps.length; i++){
+              if(String(leps[i].code||'').trim().toUpperCase() === codeU){ localIdx = i; break; }
+            }
+            if(localIdx < 0) return base;
+            let remoteIdx = -1;
+            for(let i=0; i<base.employees.length; i++){
+              if(String(base.employees[i].code||'').trim().toUpperCase() === codeU){ remoteIdx = i; break; }
+            }
+            if(remoteIdx < 0){
+              remoteIdx = base.employees.length;
+              base.employees.push({ code: leps[localIdx].code, name: leps[localIdx].name, desig: leps[localIdx].desig || 'COM.OP.' });
+            } else {
+              base.employees[remoteIdx] = {
+                code: leps[localIdx].code || base.employees[remoteIdx].code,
+                name: leps[localIdx].name || base.employees[remoteIdx].name,
+                desig: (leps[localIdx].desig || base.employees[remoteIdx].desig || 'COM.OP.')
+              };
+            }
+            base.attendance[remoteIdx] = {};
+            const latt = (localPeriod.attendance && localPeriod.attendance[localIdx]) ? localPeriod.attendance[localIdx] : {};
+            Object.keys(latt).forEach(function(d){
+              if(latt[d] !== undefined && latt[d] !== null && String(latt[d]).trim() !== ''){
+                base.attendance[remoteIdx][d] = latt[d];
               }
-            } catch(e) {}
+            });
+            if(localPeriod.notes && localPeriod.notes[localIdx]){
+              base.notes[remoteIdx] = localPeriod.notes[localIdx];
+            }
+            base._updatedAt = Date.now();
+            return base;
           }
-          return null;
+          const merged = mergeEmployeeRowIntoRemote(remoteV, localObj, myCode);
+          const mergedStr = JSON.stringify(merged);
+          const mergedT = Number(merged._updatedAt) || Date.now();
+          try {
+            localStorage.setItem(key, mergedStr);
+            if(key === storageKey(currentYear, currentMonth)){
+              data = loadPeriod(currentYear, currentMonth);
+            }
+          } catch(e) {}
+          return doSet(mergedStr, mergedT);
         }).catch(function(e){
           console.error('cloud push', key, e);
           queuePendingPush(key);
