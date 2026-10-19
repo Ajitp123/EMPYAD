@@ -117,6 +117,8 @@
     table.summary tr.row-top-salary td { background: #fefcbf !important; font-weight: 700; }
     table.summary tr.row-top-salary td:last-child { background: #f6e05e !important; color: #744210; }
     .sheet-footer { padding: 10px 16px 14px; text-align: right; font-size: 0.85rem; color: #2c5282; font-weight: 600; border-top: 1px solid #e2e8f0; letter-spacing: 0.5px; }
+    table.rates th { white-space: nowrap; }
+    #ratesYearTable input.rate-year-input { max-width: 70px; }
     table.rates { width: 100%; max-width: 720px; border-collapse: collapse; margin: 16px; font-size: 0.9rem; }
     table.rates th, table.rates td { border: 1px solid #a0aec0; padding: 8px 10px; text-align: left; }
     table.rates th { background: #2c5282; color: #fff; }
@@ -390,29 +392,25 @@
       </div>
     </div>
 
-    <!-- TAB: Salary Rates (per year + month) -->
+    <!-- TAB: Salary Rates — year × months grid (Excel style) -->
     <div id="tab-rates" class="tab-panel">
       <div class="controls">
-        <label>Year (Alt+Y):</label>
+        <label>Year:</label>
         <select id="rateYear" onchange="renderRates()"></select>
-        <label>From Month (Alt+F):</label>
-        <select id="rateMonth" onchange="renderRates()"></select>
-        <button class="btn btn-primary" onclick="saveRates()">Save This Month (Alt+M)</button>
-        <button class="btn btn-success" onclick="saveRatesFullYear()">Save Full Year (Jan–Dec) (Alt+L)</button>
-        <button class="btn btn-outline" id="btnUnlockRates" style="display:none;" onclick="unlockRatesMonth()">Unlock (Password)</button>
+        <select id="rateMonth" style="display:none;"></select>
+        <button class="btn btn-primary" onclick="saveRatesYearGrid()">Save Year Rates</button>
+        <button class="btn btn-outline" id="btnUnlockRates" style="display:none;" onclick="unlockRatesMonth()">Unlock</button>
         <span id="lockBadgeRates" style="display:none;margin-left:6px;padding:4px 10px;background:#c53030;color:#fff;border-radius:6px;font-size:0.8rem;font-weight:700;">LOCKED</span>
       </div>
-      <div class="controls" style="margin-top:-8px;">
-        <label>To Month (Alt+O):</label>
-        <select id="rateToMonth"></select>
-        <button class="btn btn-success" onclick="saveRatesRange()">Save From Month → To Month (Alt+R)</button>
-      </div>
       <div class="panel-body">
-        <h3>Salary Rate (Rs per duty / 8 hours)</h3>
-        <table class="rates">
-          <thead><tr><th>#</th><th>Code</th><th>Name</th><th>Rate (Rs / duty)</th></tr></thead>
-          <tbody id="ratesBody"></tbody>
-        </table>
+        <h3 style="margin-bottom:6px;">Employee rates — <span id="rateYearLabel">Year</span></h3>
+        <p class="hint" style="margin:0 0 12px 0;">Months <b>vertical</b> (Jan→Dec rows). Upar employee Code + Name. Har cell me rate type karo → <b>Save Year Rates</b>.</p>
+        <div class="table-wrap" style="overflow-x:auto;">
+          <table class="rates" id="ratesYearTable" style="min-width:900px;">
+            <thead id="ratesYearHead"></thead>
+            <tbody id="ratesBody"></tbody>
+          </table>
+        </div>
       </div>
     </div>
 
@@ -3138,25 +3136,223 @@
     function renderRates(){
       syncMaxEmp();
       const y = parseInt(document.getElementById('rateYear').value);
-      const m = parseInt(document.getElementById('rateMonth').value);
-      const rates = loadRatesFor(y, m);
-      const emps = getMasterEmployees();
+      const label = document.getElementById('rateYearLabel');
+      if(label) label.textContent = String(y);
+
+      const byCode = {};
+      function ensure(code, name){
+        code = String(code||'').trim().toUpperCase();
+        if(!code) return null;
+        name = String(name||'').trim();
+        if(!byCode[code]){
+          byCode[code] = { code: code, name: name, rates: Array(12).fill(DEFAULT_RATE) };
+        } else if(name && (!byCode[code].name || name.length > byCode[code].name.length)){
+          byCode[code].name = name;
+        }
+        return byCode[code];
+      }
+
+      try {
+        getMasterEmployees().forEach(function(e){ if(e) ensure(e.code, e.name); });
+      } catch(e) {}
+      try {
+        if(typeof collectAllKnownEmployees === 'function'){
+          collectAllKnownEmployees().forEach(function(e){ if(e) ensure(e.code, e.name); });
+        }
+      } catch(e) {}
+
+      for(let m=0; m<12; m++){
+        let period = { employees: [] };
+        try {
+          const raw = localStorage.getItem(storageKey(y, m));
+          if(raw) period = JSON.parse(raw) || period;
+        } catch(e) {}
+        const ratesArr = loadRatesFor(y, m);
+        const emps = Array.isArray(period.employees) ? period.employees : [];
+        const n = Math.max(emps.length, Array.isArray(ratesArr) ? ratesArr.length : 0);
+        for(let i=0; i<n; i++){
+          const e = emps[i] || {};
+          const code = String(e.code||'').trim();
+          const name = String(e.name||'').trim();
+          if(!code && !name) continue;
+          const row = ensure(code, name);
+          if(!row) continue;
+          if(ratesArr[i] != null && ratesArr[i] !== ''){
+            row.rates[m] = Number(ratesArr[i]) || DEFAULT_RATE;
+          }
+        }
+        try {
+          const rawR = localStorage.getItem(ratesKey(y, m));
+          if(rawR){
+            const parsed = JSON.parse(rawR);
+            const bc = (parsed && parsed.byCode) ? parsed.byCode : null;
+            if(bc && typeof bc === 'object'){
+              Object.keys(bc).forEach(function(c){
+                const row = ensure(c, '');
+                if(row) row.rates[m] = Number(bc[c]) || DEFAULT_RATE;
+              });
+            }
+          }
+        } catch(e) {}
+      }
+
+      const list = Object.keys(byCode).map(function(c){ return byCode[c]; })
+        .filter(function(e){ return e.code && e.code.indexOf('TMP_') !== 0; })
+        .sort(function(a,b){
+          const na = (a.name||a.code).toLowerCase();
+          const nb = (b.name||b.code).toLowerCase();
+          return na < nb ? -1 : na > nb ? 1 : 0;
+        });
+
+      // VERTICAL months: rows = Jan–Dec, columns = employees
+      let head = '<tr><th style="position:sticky;left:0;background:#2c5282;z-index:3;min-width:90px;">MONTH</th>';
+      list.forEach(function(e){
+        head += '<th style="min-width:88px;line-height:1.25;">';
+        head += '<div style="font-size:0.72rem;opacity:0.95;">'+esc(e.code)+'</div>';
+        head += '<div style="font-size:0.78rem;">'+esc(e.name || '—')+'</div>';
+        head += '</th>';
+      });
+      head += '</tr>';
+      const headEl = document.getElementById('ratesYearHead');
+      if(headEl) headEl.innerHTML = head;
+
       let html = '';
-      for(let i=0; i<MAX_EMP; i++){
-        const emp = emps[i] || emptyEmployee();
-        html += '<tr><td>'+(i+1)+'</td><td>'+esc(emp.code)+'</td><td>'+esc(emp.name)+'</td>';
-        html += '<td><input type="number" id="rate_'+i+'" value="'+rates[i]+'" min="0" step="1"></td></tr>';
+      if(!list.length){
+        html = '<tr><td colspan="20" style="text-align:center;color:#718096;padding:16px;">Koi employee nahi mila. Pehle Attendance me name + code save karo.</td></tr>';
+      } else {
+        for(let m=0; m<12; m++){
+          html += '<tr>';
+          html += '<td style="position:sticky;left:0;background:#edf2f7;z-index:2;font-weight:700;color:#2c5282;">'+MONTHS[m]+'</td>';
+          list.forEach(function(e){
+            const rv = e.rates[m] != null ? e.rates[m] : DEFAULT_RATE;
+            html += '<td style="text-align:center;">';
+            html += '<input type="number" class="rate-year-input" data-code="'+esc(e.code)+'" data-month="'+m+'" value="'+rv+'" min="0" step="1" style="width:72px;padding:6px 4px;text-align:center;border:1px solid #cbd5e0;border-radius:4px;background:#fff;">';
+            html += '</td>';
+          });
+          html += '</tr>';
+        }
       }
       document.getElementById('ratesBody').innerHTML = html;
+      try {
+        document.querySelectorAll('.rate-year-input').forEach(function(inp){
+          inp.readOnly = false;
+          inp.disabled = false;
+        });
+      } catch(e) {}
       applyRatesLockState();
     }
 
-    function readRatesFromForm(){
-      const arr = [];
-      for(let i=0; i<MAX_EMP; i++){
-        const el = document.getElementById('rate_'+i);
-        arr.push(el ? (parseFloat(el.value) || 0) : DEFAULT_RATE);
+function saveRatesYearGrid(){
+      const stored = localStorage.getItem(passKey());
+      if(stored){
+        askPassword('Year rates save (password):', stored, function(){ saveRatesYearGrid_do(); });
+      } else {
+        saveRatesYearGrid_do();
       }
+    }
+    function saveRatesYearGrid_do(){
+      const y = parseInt(document.getElementById('rateYear').value);
+      const inputs = document.querySelectorAll('.rate-year-input');
+      if(!inputs.length){
+        showStatus('Save karne ko koi rate nahi', true);
+        return;
+      }
+      const byMonth = {};
+      for(let m=0;m<12;m++) byMonth[m] = {};
+      inputs.forEach(function(inp){
+        const code = String(inp.getAttribute('data-code')||'').trim().toUpperCase();
+        const m = parseInt(inp.getAttribute('data-month'), 10);
+        const val = parseFloat(inp.value);
+        if(!code || isNaN(m) || m<0 || m>11) return;
+        byMonth[m][code] = isNaN(val) ? DEFAULT_RATE : val;
+      });
+      for(let m=0; m<12; m++){
+        const codes = byMonth[m];
+        if(!Object.keys(codes).length) continue;
+        let arr = loadRatesFor(y, m).slice();
+        let period = { employees: [] };
+        try {
+          const raw = localStorage.getItem(storageKey(y, m));
+          if(raw) period = JSON.parse(raw) || period;
+        } catch(e) {}
+        const emps = Array.isArray(period.employees) ? period.employees.slice() : [];
+        const idxByCode = {};
+        emps.forEach(function(e, i){
+          const c = String(e.code||'').trim().toUpperCase();
+          if(c) idxByCode[c] = i;
+        });
+        Object.keys(codes).forEach(function(code){
+          let idx = idxByCode[code];
+          if(idx == null){
+            idx = emps.length;
+            emps.push({ code: code, name: '', desig: 'COM.OP.' });
+            idxByCode[code] = idx;
+          }
+          while(arr.length <= idx) arr.push(DEFAULT_RATE);
+          arr[idx] = codes[code];
+        });
+        saveRatesFor(y, m, arr);
+        try {
+          const k = ratesKey(y, m);
+          let payload = {};
+          try { payload = JSON.parse(localStorage.getItem(k) || '{}'); } catch(e){ payload = {}; }
+          if(Array.isArray(payload)) payload = { arr: payload, byCode: {} };
+          if(!payload.byCode) payload.byCode = {};
+          Object.keys(codes).forEach(function(code){ payload.byCode[code] = codes[code]; });
+          payload.arr = arr.slice();
+          payload._updatedAt = Date.now();
+          localStorage.setItem(k, JSON.stringify(payload));
+          afterLocalWrite(k);
+        } catch(e) { console.error(e); }
+      }
+      showStatus('Year '+y+' — sab employees Jan–Dec rates saved ✓');
+      try { renderRates(); } catch(e) {}
+      if(y === currentYear){
+        try { renderTable(); } catch(e) {}
+      }
+    }
+
+
+    function readRatesFromForm(){
+      // Compatibility: current month rates from year grid if visible
+      const y = parseInt(document.getElementById('rateYear').value);
+      const m = (document.getElementById('rateMonth') ? parseInt(document.getElementById('rateMonth').value) : currentMonth);
+      let arr = loadRatesFor(y, isNaN(m)?currentMonth:m).slice();
+      document.querySelectorAll('.rate-year-input').forEach(function(inp){
+        const mm = parseInt(inp.getAttribute('data-month'), 10);
+        if(mm !== (isNaN(m)?currentMonth:m)) return;
+        const code = String(inp.getAttribute('data-code')||'').trim().toUpperCase();
+        // find index in current period
+        try {
+          const raw = localStorage.getItem(storageKey(y, mm));
+          const p = raw ? JSON.parse(raw) : null;
+          if(p && Array.isArray(p.employees)){
+            for(let i=0;i<p.employees.length;i++){
+              if(String(p.employees[i].code||'').trim().toUpperCase()===code){
+                while(arr.length<=i) arr.push(DEFAULT_RATE);
+                arr[i] = parseFloat(inp.value)||DEFAULT_RATE;
+              }
+            }
+          }
+        } catch(e) {}
+      });
+      return arr;
+    }
+
+function readRatesFromForm(){
+      const y = parseInt(document.getElementById('rateYear').value);
+      const m = parseInt(document.getElementById('rateMonth').value);
+      // Base: pehle se saved rates (hidden employees na mitao)
+      let arr = loadRatesFor(y, m).slice();
+      while(arr.length < MAX_EMP) arr.push(DEFAULT_RATE);
+      // Sirf form me dikhe hue rate_* update
+      document.querySelectorAll('[id^="rate_"]').forEach(function(el){
+        if(!el.id || !/^rate_\d+$/.test(el.id)) return;
+        const i = parseInt(el.id.replace('rate_',''), 10);
+        if(isNaN(i)) return;
+        while(arr.length <= i) arr.push(DEFAULT_RATE);
+        arr[i] = parseFloat(el.value) || 0;
+      });
       return arr;
     }
 
@@ -3179,7 +3375,7 @@
       saveRatesFor(y, m, arr);
       setMonthLocked(y, m, true);
       applyRatesLockState();
-      showStatus('Rates saved & Locked: '+MONTHS[m]+' '+y);
+      showStatus('Saved: '+MONTHS[m]+' '+y+' rates (Code-wise). Attendance salary update hogi.');
       if(y === currentYear && m === currentMonth){
         try { renderTable(); } catch(e) {}
       }
@@ -3219,7 +3415,8 @@
     }
     function saveRatesRange_do(){
       const y = parseInt(document.getElementById('rateYear').value);
-      const fromM = parseInt(document.getElementById('rateMonth').value);
+      const fromEl = document.getElementById('rateMonthFromAdv') || document.getElementById('rateMonth');
+      const fromM = parseInt(fromEl.value);
       const toM = parseInt(document.getElementById('rateToMonth').value);
       if(toM < fromM){
         showStatus('To Month, From Month se pehle nahi ho sakta.', true);
@@ -3244,20 +3441,17 @@
     }
 
     function applyRatesLockState(){
-      const y = parseInt(document.getElementById('rateYear').value);
-      const m = parseInt(document.getElementById('rateMonth').value);
-      const locked = isMonthLocked(y, m);
+      // Year grid (Jan–Dec) hamesha type karne layak
       const badge = document.getElementById('lockBadgeRates');
       const btn = document.getElementById('btnUnlockRates');
-      if(badge) badge.style.display = locked ? 'inline-block' : 'none';
-      if(btn) btn.style.display = locked ? 'inline-block' : 'none';
-      for(let i=0; i<MAX_EMP; i++){
-        const el = document.getElementById('rate_'+i);
-        if(el){
-          el.readOnly = locked;
-          el.style.opacity = locked ? '0.85' : '';
-        }
-      }
+      if(badge) badge.style.display = 'none';
+      if(btn) btn.style.display = 'none';
+      document.querySelectorAll('.rate-year-input').forEach(function(inp){
+        inp.readOnly = false;
+        inp.disabled = false;
+        inp.style.opacity = '1';
+        inp.style.pointerEvents = 'auto';
+      });
     }
 
     function unlockRatesMonth(){
