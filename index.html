@@ -1401,17 +1401,73 @@
     function loadRatesFor(y, m){
       syncMaxEmp();
       const raw = localStorage.getItem(ratesKey(y,m));
+      let arr = null;
+      let byCode = {};
       if(raw){
         try{
-          const arr = JSON.parse(raw);
-          if(Array.isArray(arr)) return ensureRatesArray(arr, MAX_EMP);
+          const parsed = JSON.parse(raw);
+          if(Array.isArray(parsed)) arr = parsed;
+          else if(parsed && typeof parsed === 'object'){
+            if(parsed.byCode && typeof parsed.byCode === 'object') byCode = parsed.byCode;
+            if(Array.isArray(parsed.arr)) arr = parsed.arr;
+          }
         }catch(e){}
       }
-      return Array(MAX_EMP).fill(DEFAULT_RATE);
+      let emps = [];
+      try {
+        const pr = localStorage.getItem(storageKey(y, m));
+        if(pr){
+          const p = JSON.parse(pr);
+          if(p && Array.isArray(p.employees)) emps = p.employees;
+        }
+      } catch(e) {}
+      if(!emps.length && typeof data !== 'undefined' && data && Array.isArray(data.employees) && y === currentYear && m === currentMonth){
+        emps = data.employees;
+      }
+      const out = [];
+      for(let i=0; i<MAX_EMP; i++){
+        const e = emps[i] || {};
+        const c = String(e.code||'').trim().toUpperCase();
+        if(c && byCode[c] != null && byCode[c] !== ''){
+          out.push(Number(byCode[c]) || DEFAULT_RATE);
+        } else if(arr && arr[i] != null){
+          out.push(Number(arr[i]) || DEFAULT_RATE);
+        } else {
+          out.push(DEFAULT_RATE);
+        }
+      }
+      return out;
     }
     function saveRatesFor(y, m, arr){
       const k = ratesKey(y,m);
-      localStorage.setItem(k, JSON.stringify(arr));
+      let emps = [];
+      try {
+        const pr = localStorage.getItem(storageKey(y, m));
+        if(pr){
+          const p = JSON.parse(pr);
+          if(p && Array.isArray(p.employees)) emps = p.employees;
+        }
+      } catch(e) {}
+      if(!emps.length && typeof data !== 'undefined' && data && Array.isArray(data.employees) && y === currentYear && m === currentMonth){
+        emps = data.employees;
+      }
+      // Merge previous byCode so other codes na khoon
+      let byCode = {};
+      try {
+        const prev = localStorage.getItem(k);
+        if(prev){
+          const pp = JSON.parse(prev);
+          if(pp && pp.byCode && typeof pp.byCode === 'object') byCode = Object.assign({}, pp.byCode);
+        }
+      } catch(e) {}
+      const a = ensureRatesArray(arr, MAX_EMP);
+      for(let i=0; i<a.length; i++){
+        const e = emps[i] || {};
+        const c = String(e.code||'').trim().toUpperCase();
+        if(c) byCode[c] = Number(a[i]) || DEFAULT_RATE;
+      }
+      const payload = { arr: a, byCode: byCode, _updatedAt: Date.now() };
+      localStorage.setItem(k, JSON.stringify(payload));
       afterLocalWrite(k);
     }
 
@@ -4362,16 +4418,10 @@
       if(!L) return remoteStr;
       if(!R) return localStr;
 
-      // Offline edits (preferLocal) ya newer local → local base
+      // Order preserve: preferred side ke employees array order
       const preferRemote = !preferLocal && (Number(remoteT||0) > Number(localT||0));
       const base = preferRemote ? R : L;
       const other = preferRemote ? L : R;
-      const out = {
-        employees: [],
-        attendance: {},
-        notes: {},
-        _updatedAt: Math.max(Number(localT||0), Number(remoteT||0), Date.now())
-      };
 
       function mapByCode(p){
         const m = {};
@@ -4379,30 +4429,46 @@
         for(let i=0; i<emps.length; i++){
           const e = emps[i] || {};
           const c = String(e.code||'').trim().toUpperCase();
-          const key = c || ('__i'+i);
+          const key = c || ('__SLOT_'+i);
           m[key] = {
             emp: { code: e.code||'', name: e.name||'', desig: e.desig||'COM.OP.' },
-            att: (p.attendance && p.attendance[i]) ? p.attendance[i] : {},
-            notes: (p.notes && p.notes[i]) ? p.notes[i] : {}
+            att: (p.attendance && p.attendance[i]) ? Object.assign({}, p.attendance[i]) : {},
+            notes: (p.notes && p.notes[i]) ? Object.assign({}, p.notes[i]) : {},
+            order: i
           };
         }
         return m;
       }
       const bm = mapByCode(base);
       const om = mapByCode(other);
-      const codes = [];
-      Object.keys(bm).forEach(function(c){ if(codes.indexOf(c)<0) codes.push(c); });
-      Object.keys(om).forEach(function(c){ if(codes.indexOf(c)<0) codes.push(c); });
 
+      // codes: base order pehle (slot order same rahe), phir other ke naye
+      const codes = [];
+      const baseEmps = Array.isArray(base.employees) ? base.employees : [];
+      for(let i=0; i<baseEmps.length; i++){
+        const e = baseEmps[i] || {};
+        const c = String(e.code||'').trim().toUpperCase() || ('__SLOT_'+i);
+        if(codes.indexOf(c) < 0) codes.push(c);
+      }
+      const otherEmps = Array.isArray(other.employees) ? other.employees : [];
+      for(let i=0; i<otherEmps.length; i++){
+        const e = otherEmps[i] || {};
+        const c = String(e.code||'').trim().toUpperCase() || ('__OSLOT_'+i);
+        if(codes.indexOf(c) < 0) codes.push(c);
+      }
+
+      const out = { employees: [], attendance: {}, notes: {}, _updatedAt: Date.now() };
       codes.forEach(function(code, idx){
         const b = bm[code] || { emp:{code:'',name:'',desig:'COM.OP.'}, att:{}, notes:{} };
         const o = om[code] || { emp:{code:'',name:'',desig:'COM.OP.'}, att:{}, notes:{} };
-        const emp = {
-          code: (b.emp.code || o.emp.code || ''),
-          name: (b.emp.name || o.emp.name || ''),
-          desig: (b.emp.desig || o.emp.desig || 'COM.OP.')
-        };
-        out.employees.push(emp);
+        out.employees.push({
+          code: (b.emp.code || o.emp.code || '').replace(/^__SLOT_.*/, '').replace(/^__OSLOT_.*/, ''),
+          name: b.emp.name || o.emp.name || '',
+          desig: b.emp.desig || o.emp.desig || 'COM.OP.'
+        });
+        // blank slot keys cleanup
+        if(String(out.employees[idx].code).indexOf('__') === 0) out.employees[idx].code = '';
+
         const att = {};
         const days = {};
         Object.keys(b.att||{}).forEach(function(d){ days[d]=1; });
@@ -4410,14 +4476,12 @@
         Object.keys(days).forEach(function(d){
           const bv = b.att && b.att[d] != null ? String(b.att[d]).trim() : '';
           const ov = o.att && o.att[d] != null ? String(o.att[d]).trim() : '';
-          // base pehle; dono non-empty → base (preferLocal par local)
-          // preferLocal + base khali: remote se mat bharo (offline clear/change)
           if(bv) att[d] = b.att[d];
           else if(ov && !preferLocal) att[d] = o.att[d];
-          else if(ov && preferLocal && preferRemote) att[d] = o.att[d];
-          // preferLocal && !bv && ov → local ne hata diya / change base me nahi — skip (clear rehne do)
+          // preferLocal + local empty = delete stick, remote se mat bharo
         });
         out.attendance[idx] = att;
+
         const notes = {};
         const nd = {};
         Object.keys(b.notes||{}).forEach(function(d){ nd[d]=1; });
@@ -4426,13 +4490,13 @@
           const bv = b.notes && b.notes[d] != null ? String(b.notes[d]).trim() : '';
           const ov = o.notes && o.notes[d] != null ? String(o.notes[d]).trim() : '';
           if(bv) notes[d] = b.notes[d];
-          else if(ov) notes[d] = o.notes[d];
+          else if(ov && !preferLocal) notes[d] = o.notes[d];
         });
         if(Object.keys(notes).length) out.notes[idx] = notes;
       });
-      out._updatedAt = Date.now();
       return JSON.stringify(out);
     }
+
 
     // true = local storage updated from remote/merge
     function reconcileCloudKey(key, remoteVal, remoteT){
@@ -4466,36 +4530,27 @@
       try { localScore = periodFillScore(localVal); } catch(e) {}
       try { remoteScore = periodFillScore(String(remoteVal)); } catch(e) {}
 
-      // OFFLINE QUEUE / local newer → local changes jeete (purana cloud wapas mat lao)
+      // OFFLINE QUEUE / local newer → LOCAL full document cloud pe (delete bhi stick)
       if(pending || localT >= remoteT){
-        if(isAttendancePeriodKey(key) && remoteScore > 0){
-          // merge but prefer LOCAL cell values (offline edit safe)
+        // Optional: remote-only NEW days merge into local without restoring cleared cells
+        if(isAttendancePeriodKey(key) && remoteScore > 0 && localScore > 0){
           const merged = mergeAttendancePeriodStrings(localVal, String(remoteVal), localT, remoteT, true);
           if(merged){
             if(typeof safeLocalSet === 'function') safeLocalSet(key, merged);
             else try { localStorage.setItem(key, merged); } catch(e) {}
             try { cloudPushKey(key, merged); } catch(e) {}
-            return true;
+            return false; // local already has truth
           }
         }
         try { cloudPushKey(key, localVal); } catch(e) {}
         return false;
       }
-      // Remote clearly newer (local not pending)
-      if(isAttendancePeriodKey(key) && localScore > 0 && remoteScore > 0){
-        const merged = mergeAttendancePeriodStrings(localVal, String(remoteVal), localT, remoteT, false);
-        if(merged){
-          if(typeof safeLocalSet === 'function') safeLocalSet(key, merged);
-          else try { localStorage.setItem(key, merged); } catch(e) {}
-          try { cloudPushKey(key, merged); } catch(e) {}
-          try { clearPendingPushKey(key); } catch(e) {}
-          return true;
-        }
-      }
+      // Remote newer, local not pending — apply remote (deletes from other device)
       if(remoteT > localT){
         if(typeof safeLocalSet === 'function') safeLocalSet(key, String(remoteVal));
         else try { localStorage.setItem(key, String(remoteVal)); } catch(e) {}
         try { clearPendingPushKey(key); } catch(e) {}
+        try { if(typeof liveSyncTimer !== 'undefined' && liveSyncTimer){ clearTimeout(liveSyncTimer); liveSyncTimer = null; } } catch(e) {}
         return true;
       }
       try { cloudPushKey(key, localVal); } catch(e) {}
