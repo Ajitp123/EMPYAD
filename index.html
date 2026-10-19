@@ -267,8 +267,10 @@
         <button type="button" id="loginModeAdmin" onclick="setLoginMode('admin')">Admin</button>
       </div>
       <div id="loginEmpFields">
-        <label>Employee Code</label>
-        <input type="text" id="loginCode" placeholder="e.g. 49630" autocomplete="username">
+        <label>Employee</label>
+        <select id="loginCode" style="width:100%;padding:10px;border:1px solid #cbd5e0;border-radius:8px;font-size:1rem;background:#fff;">
+          <option value="">— Select employee —</option>
+        </select>
         <label>PIN / Password</label>
         <input type="password" id="loginPin" placeholder="PIN" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
         <label style="display:flex;align-items:center;gap:8px;font-weight:500;margin:4px 0 10px 0;cursor:pointer;">
@@ -760,6 +762,64 @@
     function clearSavedLogin(){
       try { localStorage.removeItem(savedLoginKey()); } catch(e) {}
     }
+
+    function populateLoginEmployeeDropdown(selectedCode){
+      const sel = document.getElementById('loginCode');
+      if(!sel || sel.tagName !== 'SELECT') return;
+      const prev = selectedCode != null ? String(selectedCode).trim().toUpperCase() : String(sel.value||'').trim().toUpperCase();
+      const map = {};
+      function add(code, name){
+        code = String(code||'').trim().toUpperCase();
+        if(!code) return;
+        name = String(name||'').trim();
+        if(!map[code] || (name && !map[code].name)) map[code] = { code: code, name: name };
+        else if(name && name.length > (map[code].name||'').length) map[code].name = name;
+      }
+      try {
+        if(typeof collectAllKnownEmployees === 'function'){
+          collectAllKnownEmployees().forEach(function(e){ add(e.code, e.name); });
+        }
+      } catch(e) {}
+      try {
+        if(data && Array.isArray(data.employees)){
+          data.employees.forEach(function(e){ if(e) add(e.code, e.name); });
+        }
+      } catch(e) {}
+      try {
+        for(let i=0; i<localStorage.length; i++){
+          const k = localStorage.key(i);
+          if(!k || !/^att_\d+_\d+$/.test(k)) continue;
+          let p; try { p = JSON.parse(localStorage.getItem(k)); } catch(err){ continue; }
+          if(p && Array.isArray(p.employees)){
+            p.employees.forEach(function(e){ if(e) add(e.code, e.name); });
+          }
+        }
+      } catch(e) {}
+      const list = Object.keys(map).map(function(c){ return map[c]; })
+        .sort(function(a,b){
+          const na = (a.name||a.code).toLowerCase();
+          const nb = (b.name||b.code).toLowerCase();
+          return na < nb ? -1 : na > nb ? 1 : 0;
+        });
+      let html = '<option value="">— Select employee —</option>';
+      list.forEach(function(e){
+        const label = e.name ? (e.code + ' — ' + e.name) : e.code;
+        html += '<option value="'+esc(e.code)+'">'+esc(label)+'</option>';
+      });
+      sel.innerHTML = html;
+      if(prev){
+        sel.value = prev;
+        if(sel.value !== prev){
+          // code list me nahi — option add
+          const o = document.createElement('option');
+          o.value = prev;
+          o.textContent = prev;
+          sel.appendChild(o);
+          sel.value = prev;
+        }
+      }
+    }
+
     function fillLoginFormFromSaved(){
       const s = loadSavedLogin();
       if(s.mode === 'admin'){
@@ -770,10 +830,11 @@
         if(rc) rc.checked = true;
       } else if(s.mode === 'employee'){
         setLoginMode('employee');
+        try { populateLoginEmployeeDropdown(s.code || ''); } catch(e) {}
         const c = document.getElementById('loginCode');
         const p = document.getElementById('loginPin');
         const rc = document.getElementById('loginRememberEmp');
-        if(c && s.code) c.value = s.code;
+        if(c && s.code) c.value = String(s.code).toUpperCase();
         if(p && s.pin) p.value = s.pin;
         if(rc) rc.checked = true;
       }
@@ -932,10 +993,14 @@
       if(af) af.style.display = mode === 'admin' ? 'block' : 'none';
       const err = document.getElementById('loginErr');
       if(err) err.textContent = '';
+      if(mode === 'employee'){
+        try { populateLoginEmployeeDropdown(); } catch(e) {}
+      }
     }
     function showLoginOverlay(){
       const ov = document.getElementById('loginOverlay');
       if(ov) ov.classList.remove('hidden');
+      try { populateLoginEmployeeDropdown(); } catch(e) {}
       try { fillLoginFormFromSaved(); } catch(e) {}
     }
     function hideLoginOverlay(){
@@ -1571,14 +1636,27 @@
         }
       }
       const sk = storageKey(currentYear, currentMonth);
+      const score = periodFillScore(period);
+      // Content same? (mobile open se sirf timestamp bump → cloud purana jeet jata tha)
+      let prevRaw = null;
+      try { prevRaw = localStorage.getItem(sk); } catch(e) {}
+      let unchanged = false;
+      if(prevRaw && silent){
+        try {
+          const prev = JSON.parse(prevRaw);
+          const a = { employees: period.employees, attendance: period.attendance, notes: period.notes };
+          const b = { employees: prev.employees, attendance: prev.attendance, notes: prev.notes };
+          unchanged = JSON.stringify(a) === JSON.stringify(b);
+        } catch(e) { unchanged = false; }
+      }
+      if(unchanged){
+        data = period;
+        return; // koi asl change nahi — queue/cloud mat chhedo
+      }
       period._updatedAt = Date.now();
       const json = JSON.stringify(period);
-      // Agar silent live sync hai aur local bilkul khali hai to cloud pe mat bhejo
-      // (doosri device ka data wipe ho sakta hai)
-      const score = periodFillScore(period);
       localStorage.setItem(sk, json);
       data = period;
-      // Empty silent save without user edit → cloud mat touch (first load)
       if(silent && score === 0 && !liveSyncEnabled){
         return;
       }
@@ -4190,27 +4268,9 @@
               const localVal = localStorage.getItem(key);
               if(localVal === val) return;
 
-              // Last-write-wins: remote.t >= local._updatedAt → apply (delete bhi jeete)
-              let localT = 0;
-              try {
-                if(localVal){
-                  const lp = JSON.parse(localVal);
-                  localT = Number(lp._updatedAt) || 0;
-                }
-              } catch(e){}
               const remoteT = Number(payload.t) || 0;
-              // Local newer (ya remote time missing/0) → mat mitao
-              if(localVal && localT > 0 && remoteT < localT){
-                return;
-              }
-              // Same time: richer local rakho
-              if(localVal && localT > 0 && remoteT === localT){
-                try {
-                  if(periodFillScore(localVal) > periodFillScore(val)) return;
-                } catch(e) {}
-              }
-              if(!safeLocalSet(key, val)) return;
-              try { clearPendingPushKey(key); } catch(e) {}
+              const did = reconcileCloudKey(key, val, remoteT);
+              if(!did) return;
               changed = true;
               if(key === storageKey(currentYear, currentMonth) || key === ratesKey(currentYear, currentMonth) || key === lockKey(currentYear, currentMonth) || key === empCountKey()){
                 touchCurrent = true;
@@ -4242,7 +4302,9 @@
         setSyncUI('On · Office: ' + office + ' · Realtime sync ✓', true);
         // App open (net pehle se ON) — offline queue + latest pull
         setTimeout(function(){
-          manualCloudPullQuiet().then(function(){
+          flushPendingPushes().then(function(){
+            return manualCloudPullQuiet();
+          }).then(function(){
             return flushPendingPushes();
           }).then(function(){
             try {
@@ -4282,6 +4344,165 @@
         localStorage.setItem(pendingPushKey(), JSON.stringify(arr));
       } catch(e) {}
     }
+
+    function getPendingPushSet(){
+      try {
+        const raw = localStorage.getItem(pendingPushKey());
+        const arr = raw ? JSON.parse(raw) : [];
+        return new Set(Array.isArray(arr) ? arr : []);
+      } catch(e){ return new Set(); }
+    }
+
+    // Do periods merge by employee CODE + day (khali pe non-empty jeete)
+    function mergeAttendancePeriodStrings(localStr, remoteStr, localT, remoteT, preferLocal){
+      let L = null, R = null;
+      try { L = localStr ? JSON.parse(localStr) : null; } catch(e){ L = null; }
+      try { R = remoteStr ? JSON.parse(remoteStr) : null; } catch(e){ R = null; }
+      if(!L && !R) return null;
+      if(!L) return remoteStr;
+      if(!R) return localStr;
+
+      // Offline edits (preferLocal) ya newer local → local base
+      const preferRemote = !preferLocal && (Number(remoteT||0) > Number(localT||0));
+      const base = preferRemote ? R : L;
+      const other = preferRemote ? L : R;
+      const out = {
+        employees: [],
+        attendance: {},
+        notes: {},
+        _updatedAt: Math.max(Number(localT||0), Number(remoteT||0), Date.now())
+      };
+
+      function mapByCode(p){
+        const m = {};
+        const emps = Array.isArray(p.employees) ? p.employees : [];
+        for(let i=0; i<emps.length; i++){
+          const e = emps[i] || {};
+          const c = String(e.code||'').trim().toUpperCase();
+          const key = c || ('__i'+i);
+          m[key] = {
+            emp: { code: e.code||'', name: e.name||'', desig: e.desig||'COM.OP.' },
+            att: (p.attendance && p.attendance[i]) ? p.attendance[i] : {},
+            notes: (p.notes && p.notes[i]) ? p.notes[i] : {}
+          };
+        }
+        return m;
+      }
+      const bm = mapByCode(base);
+      const om = mapByCode(other);
+      const codes = [];
+      Object.keys(bm).forEach(function(c){ if(codes.indexOf(c)<0) codes.push(c); });
+      Object.keys(om).forEach(function(c){ if(codes.indexOf(c)<0) codes.push(c); });
+
+      codes.forEach(function(code, idx){
+        const b = bm[code] || { emp:{code:'',name:'',desig:'COM.OP.'}, att:{}, notes:{} };
+        const o = om[code] || { emp:{code:'',name:'',desig:'COM.OP.'}, att:{}, notes:{} };
+        const emp = {
+          code: (b.emp.code || o.emp.code || ''),
+          name: (b.emp.name || o.emp.name || ''),
+          desig: (b.emp.desig || o.emp.desig || 'COM.OP.')
+        };
+        out.employees.push(emp);
+        const att = {};
+        const days = {};
+        Object.keys(b.att||{}).forEach(function(d){ days[d]=1; });
+        Object.keys(o.att||{}).forEach(function(d){ days[d]=1; });
+        Object.keys(days).forEach(function(d){
+          const bv = b.att && b.att[d] != null ? String(b.att[d]).trim() : '';
+          const ov = o.att && o.att[d] != null ? String(o.att[d]).trim() : '';
+          // base pehle; dono non-empty → base (preferLocal par local)
+          // preferLocal + base khali: remote se mat bharo (offline clear/change)
+          if(bv) att[d] = b.att[d];
+          else if(ov && !preferLocal) att[d] = o.att[d];
+          else if(ov && preferLocal && preferRemote) att[d] = o.att[d];
+          // preferLocal && !bv && ov → local ne hata diya / change base me nahi — skip (clear rehne do)
+        });
+        out.attendance[idx] = att;
+        const notes = {};
+        const nd = {};
+        Object.keys(b.notes||{}).forEach(function(d){ nd[d]=1; });
+        Object.keys(o.notes||{}).forEach(function(d){ nd[d]=1; });
+        Object.keys(nd).forEach(function(d){
+          const bv = b.notes && b.notes[d] != null ? String(b.notes[d]).trim() : '';
+          const ov = o.notes && o.notes[d] != null ? String(o.notes[d]).trim() : '';
+          if(bv) notes[d] = b.notes[d];
+          else if(ov) notes[d] = o.notes[d];
+        });
+        if(Object.keys(notes).length) out.notes[idx] = notes;
+      });
+      out._updatedAt = Date.now();
+      return JSON.stringify(out);
+    }
+
+    // true = local storage updated from remote/merge
+    function reconcileCloudKey(key, remoteVal, remoteT){
+      if(!isSyncableKey(key)) return false;
+      if(String(key).indexOf('att_cloud_backup') === 0) return false;
+      const localVal = localStorage.getItem(key);
+      const pending = getPendingPushSet().has(key);
+      remoteT = Number(remoteT) || 0;
+      let localT = 0;
+      try {
+        if(localVal) localT = Number(JSON.parse(localVal)._updatedAt) || 0;
+      } catch(e){ localT = 0; }
+
+      if(remoteVal == null || remoteVal === ''){
+        if(localVal){ try { cloudPushKey(key, localVal); } catch(e) {} }
+        return false;
+      }
+      if(!localVal){
+        if(typeof safeLocalSet === 'function') safeLocalSet(key, String(remoteVal));
+        else try { localStorage.setItem(key, String(remoteVal)); } catch(e) {}
+        try { clearPendingPushKey(key); } catch(e) {}
+        return true;
+      }
+
+      if(localVal === String(remoteVal)){
+        try { clearPendingPushKey(key); } catch(e) {}
+        return false;
+      }
+
+      let localScore = 0, remoteScore = 0;
+      try { localScore = periodFillScore(localVal); } catch(e) {}
+      try { remoteScore = periodFillScore(String(remoteVal)); } catch(e) {}
+
+      // OFFLINE QUEUE / local newer → local changes jeete (purana cloud wapas mat lao)
+      if(pending || localT >= remoteT){
+        if(isAttendancePeriodKey(key) && remoteScore > 0){
+          // merge but prefer LOCAL cell values (offline edit safe)
+          const merged = mergeAttendancePeriodStrings(localVal, String(remoteVal), localT, remoteT, true);
+          if(merged){
+            if(typeof safeLocalSet === 'function') safeLocalSet(key, merged);
+            else try { localStorage.setItem(key, merged); } catch(e) {}
+            try { cloudPushKey(key, merged); } catch(e) {}
+            return true;
+          }
+        }
+        try { cloudPushKey(key, localVal); } catch(e) {}
+        return false;
+      }
+      // Remote clearly newer (local not pending)
+      if(isAttendancePeriodKey(key) && localScore > 0 && remoteScore > 0){
+        const merged = mergeAttendancePeriodStrings(localVal, String(remoteVal), localT, remoteT, false);
+        if(merged){
+          if(typeof safeLocalSet === 'function') safeLocalSet(key, merged);
+          else try { localStorage.setItem(key, merged); } catch(e) {}
+          try { cloudPushKey(key, merged); } catch(e) {}
+          try { clearPendingPushKey(key); } catch(e) {}
+          return true;
+        }
+      }
+      if(remoteT > localT){
+        if(typeof safeLocalSet === 'function') safeLocalSet(key, String(remoteVal));
+        else try { localStorage.setItem(key, String(remoteVal)); } catch(e) {}
+        try { clearPendingPushKey(key); } catch(e) {}
+        return true;
+      }
+      try { cloudPushKey(key, localVal); } catch(e) {}
+      return false;
+    }
+
+
     function flushPendingPushes(){
       if(!fbReady || !fbDb) return Promise.resolve();
       let arr = [];
@@ -4305,12 +4526,18 @@
     function onAppOnline(){
       if(!fbReady || !fbDb) return;
       setSyncUI('Online — sync…', true);
-      // PEHLE cloud se naya data lo (delete/fill jo latest ho), PHIR local pending push
-      manualCloudPullQuiet().then(function(){
+      // 1) Offline queue pehle cloud pe  2) phir smart pull/merge
+      flushPendingPushes().then(function(){
+        return manualCloudPullQuiet();
+      }).then(function(){
         return flushPendingPushes();
       }).then(function(){
+        try {
+          data = loadPeriod(currentYear, currentMonth);
+          if(typeof renderTable === 'function') renderTable();
+        } catch(e) {}
         setSyncUI('On · Office: ' + (getOfficeId()||'') + ' · Realtime sync ✓', true);
-        showStatus('Net ON — latest data sync');
+        showStatus('Net ON — offline + cloud data merge sync ✓');
       }).catch(function(e){
         console.error(e);
         try { flushPendingPushes(); } catch(err) {}
@@ -4327,29 +4554,24 @@
             snap.forEach(function(doc){
               const key = doc.id;
               if(!isSyncableKey(key)) return;
-              const payload = doc.data();
-              if(!payload || typeof payload.v === 'undefined') return;
-              const val = String(payload.v);
-              const localVal = localStorage.getItem(key);
-              if(localVal === val) return;
-              let localT = 0;
-              try { if(localVal) localT = Number(JSON.parse(localVal)._updatedAt)||0; } catch(e){}
-              const remoteT = Number(payload.t)||0;
-              if(localVal && localT > 0 && remoteT < localT) return;
-              if(localVal && localT > 0 && remoteT === localT){
-                try { if(periodFillScore(localVal) > periodFillScore(val)) return; } catch(e) {}
-              }
-              if(!safeLocalSet(key, val)) return;
-              try { clearPendingPushKey(key); } catch(e) {}
-              if(key === storageKey(currentYear, currentMonth) || key === ratesKey(currentYear, currentMonth) || key === lockKey(currentYear, currentMonth) || key === empCountKey()){
+              const payload = doc.data() || {};
+              if(typeof payload.v === 'undefined') return;
+              const remoteVal = String(payload.v);
+              const remoteT = Number(payload.t) || 0;
+              const changed = reconcileCloudKey(key, remoteVal, remoteT);
+              if(changed && (key === storageKey(currentYear, currentMonth) || key === ratesKey(currentYear, currentMonth) || key === lockKey(currentYear, currentMonth) || key === empCountKey())){
                 touchCurrent = true;
               }
             });
-          } finally { syncingFromCloud = false; }
+          } finally {
+            syncingFromCloud = false;
+          }
           if(touchCurrent){
-            data = loadPeriod(currentYear, currentMonth);
-            if(typeof renderTablePreserveFocus === 'function') renderTablePreserveFocus();
-            else renderTable();
+            try {
+              data = loadPeriod(currentYear, currentMonth);
+              if(typeof renderTablePreserveFocus === 'function') renderTablePreserveFocus();
+              else if(typeof renderTable === 'function') renderTable();
+            } catch(e) {}
           }
         });
     }
