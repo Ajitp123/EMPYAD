@@ -922,18 +922,9 @@
       return s && s.role === 'employee' ? String(s.code||'').trim().toUpperCase() : '';
     }
     function canEditRow(i){
+      // Sirf Admin attendance fill kar sake — employee sirf dekh sake
       if(isAdmin()) return true;
-      if(!getSession()) return false;
-      if(!isEmployee()) return false;
-      const my = getMyCode();
-      if(!my) return false;
-      let c = '';
-      const codeEl = document.getElementById('code_'+i);
-      if(codeEl) c = String(codeEl.value || '').trim();
-      if(!c && data && data.employees && data.employees[i]){
-        c = String(data.employees[i].code || '').trim();
-      }
-      return c.toUpperCase() === my;
+      return false;
     }
 
     function loadEmpPins(){
@@ -1746,12 +1737,7 @@
           if(typeof syncingFromCloud !== 'undefined' && syncingFromCloud) return;
           if(isMonthLocked(currentYear, currentMonth) && !isEmployee()) return;
           if(!document.getElementById('code_0')) return;
-          if(isEmployee()){
-            // sirf apni row edit ke baad
-            let ok = false;
-            for(let i=0; i<MAX_EMP; i++){ if(canEditRow(i)){ ok = true; break; } }
-            if(!ok) return;
-          }
+          if(isEmployee()) return; // employee attendance save nahi
           savePeriod({ silent: true });
         } catch(e) { console.error('live sync', e); }
       }, 350);
@@ -1848,10 +1834,10 @@
         for(let d=1; d<=days; d++){
           const inp = document.getElementById('att_'+i+'_'+d);
           if(!inp) continue;
-          // Employee: sirf apni row (lock ignore)
+          // Employee: koi cell edit nahi (view only)
           // Admin: unlocked month
           let can = false;
-          if(empMode) can = rowOk;
+          if(empMode) can = false;
           else if(adminMode) can = !locked;
           else can = false;
 
@@ -2846,13 +2832,12 @@
     }
 
     function bulkFillMonth(){
-      const empIdx = parseInt(document.getElementById('bulkEmpSelect').value);
       if(isEmployee()){
-        if(!canEditRow(empIdx)){
-          showStatus('Sirf apna attendance bulk fill kar sakte ho', true);
-          return;
-        }
-      } else if(isMonthLocked(currentYear, currentMonth)){
+        showStatus('Sirf Admin attendance bhar sakta hai', true);
+        return;
+      }
+      const empIdx = parseInt(document.getElementById('bulkEmpSelect').value);
+      if(isMonthLocked(currentYear, currentMonth)){
         const st = document.getElementById('bulkFillStatus');
         if(st){ st.textContent = 'Ye month LOCKED hai. Pehle Unlock karo.'; st.style.color = '#9b2c2c'; }
         return;
@@ -4829,6 +4814,13 @@ function saveRates(){
     function cloudPushKey(key, value){
       if(!fbReady || !fbDb || syncingFromCloud) return Promise.resolve();
       if(!isSyncableKey(key)) return Promise.resolve();
+      // Employee login: attendance data cloud pe mat bhejo (sirf Admin fill)
+      if(typeof isEmployee === 'function' && isEmployee()){
+        if(typeof isAttendancePeriodKey === 'function' && isAttendancePeriodKey(key)){
+          return Promise.resolve();
+        }
+        if(/^att_\d+_\d+$/.test(String(key||''))) return Promise.resolve();
+      }
       const office = getOfficeId();
       if(!office) return Promise.resolve();
       const valStr = value == null ? '' : String(value);
