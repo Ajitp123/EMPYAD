@@ -468,25 +468,30 @@
     <!-- TAB: Backup / Restore -->
     <div id="tab-backup" class="tab-panel">
       <div class="panel-body">
+        <div data-backup-admin>
         <h3>Backup Data</h3>
         <p class="hint" style="margin:0 0 12px 0;">Saara attendance + rates + password ek JSON file me download hoga. Phone/PC pe safe rakh lo.</p>
         <button class="btn btn-success" onclick="backupData()">Download Backup (JSON)</button>
-        <h3 style="margin-top:28px;">☁ Cloud Backup (Mobile ↔ Computer)</h3>
+        </div>
+        <h3 style="margin-top:28px;">☁ Cloud Backup</h3>
         <p class="hint" style="margin:0 0 12px 0;">
           Mobile pe <b>Save Backup to Cloud</b> → Computer pe <b>Restore from Cloud</b> (ya ulta).
           File WhatsApp se bhejne ki zaroorat nahi. Internet + Firebase Connect zaroori.
         </p>
-        <button class="btn btn-success" onclick="cloudBackupSave()">Save Backup to Cloud</button>
+        <button class="btn btn-success" data-backup-admin onclick="cloudBackupSave()">Save Backup to Cloud</button>
         <button class="btn btn-primary" onclick="cloudBackupRestore()" style="margin-left:8px;">Restore from Cloud</button>
+        <div data-backup-admin>
         <h3 style="margin-top:28px;">Export PDF</h3>
         <p class="hint" style="margin:0 0 12px 0;">Attendance sheet + Year Summary (sirf named employees).</p>
         <button class="btn btn-primary" onclick="openExportModal()">Export PDF</button>
+        </div>
         <h3 style="margin-top:28px;">Restore Data</h3>
-        <p class="hint" style="margin:0 0 12px 0;">Pehle ka backup JSON choose karo. Restore se current data replace ho jayega.</p>
+        <p class="hint" style="margin:0 0 12px 0;">Pehle ka backup JSON choose karo. Restore se current data replace ho jayega. Password zaroori.</p>
         <input type="file" id="restoreFile" accept=".json,application/json" style="margin-bottom:10px;">
         <br>
         <button class="btn btn-primary" onclick="restoreData()">Restore from File</button>
         <p id="backupStatus" style="margin-top:12px;font-size:0.85rem;color:#276749;"></p>
+        <div data-backup-admin>
         <h3 style="margin-top:28px;">Fix Old Entries</h3>
         <p class="hint" style="margin:0 0 12px 0;">Selected years me jaha "8" bhara hai wo "P" ho jayega, aur jaha "16" bhara hai wo "DB" ho jayega.</p>
         <div class="row">
@@ -514,6 +519,7 @@
         </div>
         <button class="btn btn-primary" onclick="renameEmployeeInRange()" style="margin-top:10px;">Apply Name Change</button>
         <p id="renameEmpStatus" style="margin-top:12px;font-size:0.85rem;color:#276749;"></p>
+        </div>
       </div>
     </div>
 
@@ -1119,7 +1125,7 @@
       document.querySelectorAll('.tab-btn').forEach(function(b){
         const t = b.dataset.tab;
         if(!t) return;
-        if(emp && (t === 'rates' || t === 'backup' || t === 'settings' || t === 'security')){
+        if(emp && (t === 'rates' || t === 'settings' || t === 'security')){
           b.style.display = 'none';
         } else {
           b.style.display = '';
@@ -1969,7 +1975,7 @@
       if(!name) name = 'att';
 
       // Employee: rates/backup/settings/security band
-      if(isEmployee() && (name === 'rates' || name === 'backup' || name === 'settings' || name === 'security')){
+      if(isEmployee() && (name === 'rates' || name === 'settings' || name === 'security')){
         showStatus('Ye tab sirf Admin ke liye hai', true);
         return;
       }
@@ -2037,6 +2043,12 @@
       if(name === 'backup') {
         const bs = document.getElementById('backupStatus');
         if(bs) bs.textContent = '';
+        try {
+          const emp = isEmployee();
+          document.querySelectorAll('#tab-backup [data-backup-admin]').forEach(function(el){
+            el.style.display = emp ? 'none' : '';
+          });
+        } catch(e) {}
       }
       if(name === 'security') refreshTabsPassBadge();
     }
@@ -3783,6 +3795,18 @@ function saveRates(){
         showStatus('Pehle Settings me Firebase Connect karo', true);
         return;
       }
+      const stored = localStorage.getItem(tabsPassKey()) || localStorage.getItem(passKey());
+      if(stored){
+        askPassword('Restore from Cloud — password:', stored, function(){ cloudBackupRestore_do(); });
+      } else {
+        cloudBackupRestore_do();
+      }
+    }
+    function cloudBackupRestore_do(){
+      if(!fbReady || !fbDb){
+        showStatus('Pehle Settings me Firebase Connect karo', true);
+        return;
+      }
       if(!confirm('Cloud backup se is device ka current data replace ho jayega. Continue?')) return;
       const office = getOfficeId();
       const st = document.getElementById('backupStatus');
@@ -3848,6 +3872,19 @@ function saveRates(){
 
 
     function restoreData(){
+      const fileInput = document.getElementById('restoreFile');
+      if(!fileInput.files || !fileInput.files[0]){
+        showStatus('Pehle backup JSON file choose karo', true);
+        return;
+      }
+      const stored = localStorage.getItem(tabsPassKey()) || localStorage.getItem(passKey());
+      if(stored){
+        askPassword('Restore from File — password:', stored, function(){ restoreData_do(); });
+      } else {
+        restoreData_do();
+      }
+    }
+    function restoreData_do(){
       const fileInput = document.getElementById('restoreFile');
       if(!fileInput.files || !fileInput.files[0]){
         showStatus('Pehle backup JSON file choose karo', true);
