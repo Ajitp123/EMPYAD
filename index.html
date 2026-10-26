@@ -787,8 +787,20 @@
       return {};
     }
     function saveSavedLogin(obj){
-      try { localStorage.setItem(savedLoginKey(), JSON.stringify(obj || {})); } catch(e) {}
+      try {
+        const prev = loadSavedLogin() || {};
+        const next = Object.assign({}, prev, obj || {});
+        // never wipe the other admin password accidentally
+        if(obj && obj.mode === 'admin' && obj.adminEditPass == null && obj.adminPass != null){
+          next.adminEditPass = obj.adminPass;
+        }
+        if(obj && obj.mode === 'admin_view' && obj.adminViewPass == null && obj.adminPass != null){
+          next.adminViewPass = obj.adminPass;
+        }
+        localStorage.setItem(savedLoginKey(), JSON.stringify(next));
+      } catch(e) {}
     }
+
     function clearSavedLogin(){
       try { localStorage.removeItem(savedLoginKey()); } catch(e) {}
     }
@@ -851,12 +863,15 @@
     }
 
     function fillLoginFormFromSaved(){
-      const s = loadSavedLogin();
+      const s = loadSavedLogin() || {};
       if(s.mode === 'admin' || s.mode === 'admin_view'){
         setLoginMode(s.mode === 'admin_view' ? 'admin_view' : 'admin');
         const ap = document.getElementById('loginAdminPass');
         const rc = document.getElementById('loginRememberAdmin');
-        if(ap && s.adminPass) ap.value = s.adminPass;
+        if(ap){
+          if(s.mode === 'admin_view') ap.value = s.adminViewPass || s.adminPass || '';
+          else ap.value = s.adminEditPass || s.adminPass || '';
+        }
         if(rc) rc.checked = true;
       } else if(s.mode === 'employee'){
         setLoginMode('employee');
@@ -869,6 +884,13 @@
         if(rc) rc.checked = true;
       }
     }
+    function fillAdminPassForCurrentMode(){
+      const s = loadSavedLogin() || {};
+      const ap = document.getElementById('loginAdminPass');
+      if(!ap) return;
+      if(loginMode === 'admin_view') ap.value = s.adminViewPass || '';
+      else if(loginMode === 'admin') ap.value = s.adminEditPass || s.adminPass || '';
+    }
 
     function tryAutoLoginFromSaved(){
       let s = null;
@@ -878,7 +900,9 @@
         if(s.mode === 'admin' || s.mode === 'admin_view'){
           const isView = (s.mode === 'admin_view');
           const stored = localStorage.getItem(isView ? adminViewPassKey() : adminPassKey());
-          const savedPass = (s.adminPass != null) ? String(s.adminPass) : '';
+          const savedPass = isView
+            ? String(s.adminViewPass != null ? s.adminViewPass : (s.adminPass || ''))
+            : String(s.adminEditPass != null ? s.adminEditPass : (s.adminPass || ''));
           if(stored){
             if(savedPass !== String(stored)) return false;
           } else if(isView){
@@ -1037,6 +1061,7 @@
         if(lab) lab.textContent = 'Admin Edit Password';
         if(inp) inp.placeholder = 'Admin Edit password';
       }
+      try { fillAdminPassForCurrentMode(); } catch(e) {}
     }
 
     function showLoginOverlay(){
@@ -1075,10 +1100,19 @@
         }
         const remA = document.getElementById('loginRememberAdmin');
         if(!remA || remA.checked){
-          saveSavedLogin({ mode: isView ? 'admin_view' : 'admin', adminPass: pass, auto: true });
+          const patch = { mode: isView ? 'admin_view' : 'admin', auto: true };
+          if(isView) patch.adminViewPass = pass;
+          else patch.adminEditPass = pass;
+          // legacy field keep for compatibility
+          patch.adminPass = pass;
+          saveSavedLogin(patch);
         } else {
-          const prev = loadSavedLogin();
-          if(prev.mode === 'admin' || prev.mode === 'admin_view') clearSavedLogin();
+          // uncheck: only clear this role's saved pass, not the other
+          const prev = loadSavedLogin() || {};
+          if(isView){ delete prev.adminViewPass; }
+          else { delete prev.adminEditPass; }
+          if(prev.mode === (isView ? 'admin_view' : 'admin')) prev.mode = prev.adminEditPass ? 'admin' : (prev.adminViewPass ? 'admin_view' : (prev.code ? 'employee' : ''));
+          try { localStorage.setItem(savedLoginKey(), JSON.stringify(prev)); } catch(e) {}
         }
         setSession({ role: isView ? 'admin_view' : 'admin', at: Date.now() });
         liveSyncEnabled = true;
@@ -1086,7 +1120,7 @@
         try { refreshCurrentPeriodView(); markUserEdited(); } catch(e) {
           try { applyRolePermissions(); renderTable(); } catch(err) {}
         }
-        showStatus(isView ? 'Login: Admin View (sirf dekhna)' : 'Login: Admin Edit');
+        showStatus(isView ? 'Login: Admin View' : 'Login: Admin Edit');
         return;
       }
       // Employee
@@ -1136,7 +1170,7 @@
       if(s.role === 'admin'){
         txt.innerHTML = 'Role: <b>Admin Edit</b>';
       } else if(s.role === 'admin_view'){
-        txt.innerHTML = 'Role: <b>Admin View</b> (sirf dekhna)';
+        txt.innerHTML = 'Role: <b>Admin View</b>';
       } else {
         const code = String(s.code||'').trim().toUpperCase();
         let name = '';
