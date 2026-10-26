@@ -4552,15 +4552,16 @@ function saveRates(){
           } finally {
             syncingFromCloud = false;
           }
-          if(changed && touchCurrent){
+          if(changed){
             try {
-              data = loadPeriod(currentYear, currentMonth);
-              if(typeof renderTablePreserveFocus === 'function') renderTablePreserveFocus();
-              else renderTable();
-              // live: soft status only if not typing
-              const ae = document.activeElement;
-              if(!(ae && ae.classList && ae.classList.contains('att-input'))){
-                showStatus('Live sync — cloud se update');
+              if(touchCurrent || true){
+                data = loadPeriod(currentYear, currentMonth);
+                if(typeof renderTablePreserveFocus === 'function') renderTablePreserveFocus();
+                else if(typeof renderTable === 'function') renderTable();
+                const ae = document.activeElement;
+                if(touchCurrent && !(ae && ae.classList && ae.classList.contains('att-input'))){
+                  showStatus('Live sync — sab devices update');
+                }
               }
             } catch(e) {}
           }
@@ -4693,9 +4694,10 @@ function saveRates(){
         Object.keys(days).forEach(function(d){
           const bv = b.att && b.att[d] != null ? String(b.att[d]).trim() : '';
           const ov = o.att && o.att[d] != null ? String(o.att[d]).trim() : '';
-          if(bv) att[d] = b.att[d];
-          else if(ov && !preferLocal) att[d] = o.att[d];
-          // preferLocal + local empty = delete stick, remote se mat bharo
+          // UNION merge: dono devices ke filled cells rakho (mobile + offline computer)
+          if(bv && ov) att[d] = b.att[d]; // dono me value → preferred base
+          else if(bv) att[d] = b.att[d];
+          else if(ov) att[d] = o.att[d];
         });
         out.attendance[idx] = att;
 
@@ -4706,8 +4708,9 @@ function saveRates(){
         Object.keys(nd).forEach(function(d){
           const bv = b.notes && b.notes[d] != null ? String(b.notes[d]).trim() : '';
           const ov = o.notes && o.notes[d] != null ? String(o.notes[d]).trim() : '';
-          if(bv) notes[d] = b.notes[d];
-          else if(ov && !preferLocal) notes[d] = o.notes[d];
+          if(bv && ov) notes[d] = b.notes[d];
+          else if(bv) notes[d] = b.notes[d];
+          else if(ov) notes[d] = o.notes[d];
         });
         if(Object.keys(notes).length) out.notes[idx] = notes;
       });
@@ -4747,23 +4750,45 @@ function saveRates(){
       try { localScore = periodFillScore(localVal); } catch(e) {}
       try { remoteScore = periodFillScore(String(remoteVal)); } catch(e) {}
 
-      // OFFLINE QUEUE / local newer → LOCAL full document cloud pe (delete bhi stick)
+      // EMPLOYEE: attendance sirf cloud se dekho (local overwrite mat karo)
+      try {
+        if(typeof isEmployee === 'function' && isEmployee() && isAttendancePeriodKey(key)){
+          if(typeof safeLocalSet === 'function') safeLocalSet(key, String(remoteVal));
+          else try { localStorage.setItem(key, String(remoteVal)); } catch(e) {}
+          try { clearPendingPushKey(key); } catch(e) {}
+          try { if(typeof liveSyncTimer !== 'undefined' && liveSyncTimer){ clearTimeout(liveSyncTimer); liveSyncTimer = null; } } catch(e) {}
+          return true;
+        }
+      } catch(e) {}
+
+      // Admin offline pending / local newer → UNION merge with remote, then push
       if(pending || localT >= remoteT){
-        // Optional: remote-only NEW days merge into local without restoring cleared cells
-        if(isAttendancePeriodKey(key) && remoteScore > 0 && localScore > 0){
+        if(isAttendancePeriodKey(key) && remoteScore > 0){
           const merged = mergeAttendancePeriodStrings(localVal, String(remoteVal), localT, remoteT, true);
           if(merged){
             if(typeof safeLocalSet === 'function') safeLocalSet(key, merged);
             else try { localStorage.setItem(key, merged); } catch(e) {}
             try { cloudPushKey(key, merged); } catch(e) {}
-            return false; // local already has truth
+            return true; // UI refresh — dono devices ka data mila
           }
         }
         try { cloudPushKey(key, localVal); } catch(e) {}
         return false;
       }
-      // Remote newer, local not pending — apply remote (deletes from other device)
+      // Remote newer — UNION merge so local offline cells na khoon, phir apply
       if(remoteT > localT){
+        if(isAttendancePeriodKey(key) && localScore > 0 && !pending){
+          const merged = mergeAttendancePeriodStrings(localVal, String(remoteVal), localT, remoteT, false);
+          if(merged){
+            if(typeof safeLocalSet === 'function') safeLocalSet(key, merged);
+            else try { localStorage.setItem(key, merged); } catch(e) {}
+            try { clearPendingPushKey(key); } catch(e) {}
+            try { if(typeof liveSyncTimer !== 'undefined' && liveSyncTimer){ clearTimeout(liveSyncTimer); liveSyncTimer = null; } } catch(e) {}
+            // push merged so other devices get union too
+            try { if(typeof isAdmin === 'function' && isAdmin()) cloudPushKey(key, merged); } catch(e) {}
+            return true;
+          }
+        }
         if(typeof safeLocalSet === 'function') safeLocalSet(key, String(remoteVal));
         else try { localStorage.setItem(key, String(remoteVal)); } catch(e) {}
         try { clearPendingPushKey(key); } catch(e) {}
@@ -4798,23 +4823,30 @@ function saveRates(){
     function onAppOnline(){
       if(!fbReady || !fbDb) return;
       setSyncUI('Online — sync…', true);
-      // 1) Offline queue pehle cloud pe  2) phir smart pull/merge
+      // 1) Offline queue push  2) cloud pull/merge  3) remaining queue
       flushPendingPushes().then(function(){
-        return manualCloudPullQuiet();
+        return (typeof manualCloudPullQuiet === 'function') ? manualCloudPullQuiet() : Promise.resolve();
       }).then(function(){
         return flushPendingPushes();
       }).then(function(){
         try {
-          data = loadPeriod(currentYear, currentMonth);
-          if(typeof renderTable === 'function') renderTable();
+          if(typeof refreshCurrentPeriodView === 'function') refreshCurrentPeriodView();
+          else {
+            data = loadPeriod(currentYear, currentMonth);
+            if(typeof renderTable === 'function') renderTable();
+          }
         } catch(e) {}
         setSyncUI('On · Office: ' + (getOfficeId()||'') + ' · Realtime sync ✓', true);
-        showStatus('Net ON — offline + cloud data merge sync ✓');
-      }).catch(function(e){
-        console.error(e);
-        try { flushPendingPushes(); } catch(err) {}
+        showStatus('Net ON — offline + cloud merge ✓');
+      }).catch(function(err){
+        console.error(err);
+        try { flushPendingPushes(); } catch(e) {}
+        try {
+          if(typeof refreshCurrentPeriodView === 'function') refreshCurrentPeriodView();
+        } catch(e) {}
       });
     }
+
     function manualCloudPullQuiet(){
       if(!fbReady || !fbDb) return Promise.resolve();
       const office = getOfficeId();
