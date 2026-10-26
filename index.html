@@ -277,7 +277,8 @@
       <p class="login-sub" style="display:none;">Admin fills · Employee views only</p>
       <div class="login-mode-row">
         <button type="button" id="loginModeEmp" class="active" onclick="setLoginMode('employee')">Employee</button>
-        <button type="button" id="loginModeAdmin" onclick="setLoginMode('admin')">Admin</button>
+        <button type="button" id="loginModeAdmin" onclick="setLoginMode('admin')">Admin Edit</button>
+        <button type="button" id="loginModeAdminView" onclick="setLoginMode('admin_view')">Admin View</button>
       </div>
       <div id="loginEmpFields">
         <label>Employee</label>
@@ -292,8 +293,8 @@
         </label>
       </div>
       <div id="loginAdminFields" style="display:none;">
-        <label>Admin Password</label>
-        <input type="password" id="loginAdminPass" placeholder="Admin login password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+        <label id="loginAdminPassLabel">Admin Edit Password</label>
+        <input type="password" id="loginAdminPass" placeholder="Password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
         <label style="display:flex;align-items:center;gap:8px;font-weight:500;margin:4px 0 10px 0;cursor:pointer;">
           <input type="checkbox" id="loginRememberAdmin" style="width:auto;margin:0;" checked>
           Password is device pe save rakho
@@ -605,8 +606,8 @@
 
 
       <div class="settings-box" id="adminPassBox">
-        <h3>🔑 Admin Login Password</h3>
-        <p style="font-size:0.85rem;color:#4a5568;">Sirf <b>Admin login</b> ke liye. 3 tabs (Rates/Backup/Settings) se <b>alag</b>.</p>
+        <h3>🔑 Admin Edit Password</h3>
+        <p style="font-size:0.85rem;color:#4a5568;"><b>Admin Edit</b> login — attendance fill + full control. 3 tabs password se <b>alag</b>.</p>
         <p id="adminPassBadge" style="font-weight:700;"></p>
         <div class="row" id="currentAdminPassRow" style="display:none;">
           <input type="password" id="currentAdminPass" placeholder="Current Admin password" style="flex:1;">
@@ -617,6 +618,20 @@
           <button class="btn btn-primary" onclick="setAdminPassword()">Set / Update Admin Password</button>
         </div>
         <p id="adminPassStatus" style="font-size:0.8rem;color:#276749;"></p>
+      </div>
+      <div class="settings-box" id="adminViewPassBox">
+        <h3>👁 Admin View Password</h3>
+        <p style="font-size:0.85rem;color:#4a5568;"><b>Admin View</b> login — attendance / reports sirf <b>dekhne</b> ke liye (fill nahi). Computer pe use karo.</p>
+        <p id="adminViewPassBadge" style="font-weight:700;"></p>
+        <div class="row" id="currentAdminViewPassRow" style="display:none;">
+          <input type="password" id="currentAdminViewPass" placeholder="Current Admin View password" style="flex:1;">
+        </div>
+        <div class="row">
+          <input type="password" id="newAdminViewPass" placeholder="New Admin View password" style="flex:1;">
+          <input type="password" id="confirmAdminViewPass" placeholder="Confirm" style="flex:1;">
+          <button class="btn btn-primary" onclick="setAdminViewPassword()">Set / Update Admin View Password</button>
+        </div>
+        <p id="adminViewPassStatus" style="font-size:0.8rem;color:#276749;"></p>
       </div>
       <div class="settings-box">
         <h3>🔒 Rates / Backup / Settings / Security — Tab Password</h3>
@@ -837,8 +852,8 @@
 
     function fillLoginFormFromSaved(){
       const s = loadSavedLogin();
-      if(s.mode === 'admin'){
-        setLoginMode('admin');
+      if(s.mode === 'admin' || s.mode === 'admin_view'){
+        setLoginMode(s.mode === 'admin_view' ? 'admin_view' : 'admin');
         const ap = document.getElementById('loginAdminPass');
         const rc = document.getElementById('loginRememberAdmin');
         if(ap && s.adminPass) ap.value = s.adminPass;
@@ -854,45 +869,50 @@
         if(rc) rc.checked = true;
       }
     }
+
     function tryAutoLoginFromSaved(){
       let s = null;
       try { s = loadSavedLogin(); } catch(e) { s = null; }
       if(!s || typeof s !== 'object') return false;
-      // auto flag optional — code+pin / adminPass enough
       try {
-        if(s.mode === 'admin' && s.adminPass != null && String(s.adminPass).length >= 0){
-          const storedAdmin = localStorage.getItem(adminPassKey());
-          if(storedAdmin && String(s.adminPass) !== String(storedAdmin)){
-            return false; // Admin password changed
+        if(s.mode === 'admin' || s.mode === 'admin_view'){
+          const isView = (s.mode === 'admin_view');
+          const stored = localStorage.getItem(isView ? adminViewPassKey() : adminPassKey());
+          const savedPass = (s.adminPass != null) ? String(s.adminPass) : '';
+          if(stored){
+            if(savedPass !== String(stored)) return false;
+          } else if(isView){
+            return false;
           }
-          setSession({ role: 'admin', at: Date.now() });
-          protectedUnlocked = false; // 3-tab still needs own password
+          setSession({ role: isView ? 'admin_view' : 'admin', at: Date.now() });
           liveSyncEnabled = true;
           hideLoginOverlay();
-          try { applyRolePermissions(); if(typeof renderTable==='function') renderTable(); markUserEdited(); } catch(e) {}
-          try { showStatus('Auto login: Admin'); } catch(e) {}
+          try { refreshCurrentPeriodView(); } catch(e) {
+            try { applyRolePermissions(); if(typeof renderTable==='function') renderTable(); } catch(err) {}
+          }
           return true;
         }
-        if((s.mode === 'employee' || s.code) && s.code && s.pin){
+        if(s.code && s.pin){
           const code = String(s.code).trim().toUpperCase();
           const pin = String(s.pin);
-          // Same device pe saved login trust — PIN list optional
           try {
             const pins = loadEmpPins();
-            if(pins && pins[code] && String(pins[code]) !== pin){
-              return false; // admin ne PIN badal diya
+            if(pins && Object.keys(pins).length && pins[code] && String(pins[code]) !== pin){
+              return false;
             }
           } catch(e) {}
           setSession({ role: 'employee', code: code, at: Date.now() });
           liveSyncEnabled = true;
           hideLoginOverlay();
-          try { applyRolePermissions(); if(typeof renderTable==='function') renderTable(); applyLockState(); } catch(e) {}
-          try { showStatus('Auto login: ' + code); } catch(e) {}
+          try { refreshCurrentPeriodView(); } catch(e) {
+            try { applyRolePermissions(); if(typeof renderTable==='function') renderTable(); applyLockState(); } catch(err) {}
+          }
           return true;
         }
       } catch(e) { console.error('autoLogin', e); }
       return false;
     }
+
 
 
 
@@ -916,8 +936,17 @@
       try { applyRolePermissions(); } catch(e) {}
     }
     function isAdmin(){
+      // Full Admin Edit — attendance fill + settings
       const s = getSession();
       return !!(s && s.role === 'admin');
+    }
+    function isAdminView(){
+      // Admin View — sirf dekhna, fill nahi
+      const s = getSession();
+      return !!(s && s.role === 'admin_view');
+    }
+    function isAdminAny(){
+      return isAdmin() || isAdminView();
     }
     function isEmployee(){
       const s = getSession();
@@ -991,18 +1020,25 @@
       loginMode = mode;
       const empBtn = document.getElementById('loginModeEmp');
       const admBtn = document.getElementById('loginModeAdmin');
+      const viewBtn = document.getElementById('loginModeAdminView');
       if(empBtn) empBtn.classList.toggle('active', mode === 'employee');
       if(admBtn) admBtn.classList.toggle('active', mode === 'admin');
+      if(viewBtn) viewBtn.classList.toggle('active', mode === 'admin_view');
       const ef = document.getElementById('loginEmpFields');
       const af = document.getElementById('loginAdminFields');
-      if(ef) ef.style.display = mode === 'employee' ? 'block' : 'none';
-      if(af) af.style.display = mode === 'admin' ? 'block' : 'none';
-      const err = document.getElementById('loginErr');
-      if(err) err.textContent = '';
-      if(mode === 'employee'){
-        try { populateLoginEmployeeDropdown(); } catch(e) {}
+      if(ef) ef.style.display = (mode === 'employee') ? '' : 'none';
+      if(af) af.style.display = (mode === 'admin' || mode === 'admin_view') ? '' : 'none';
+      const lab = document.getElementById('loginAdminPassLabel');
+      const inp = document.getElementById('loginAdminPass');
+      if(mode === 'admin_view'){
+        if(lab) lab.textContent = 'Admin View Password';
+        if(inp) inp.placeholder = 'Admin View password';
+      } else if(mode === 'admin'){
+        if(lab) lab.textContent = 'Admin Edit Password';
+        if(inp) inp.placeholder = 'Admin Edit password';
       }
     }
+
     function showLoginOverlay(){
       const ov = document.getElementById('loginOverlay');
       if(ov) ov.classList.remove('hidden');
@@ -1016,55 +1052,59 @@
     function doLogin(){
       const err = document.getElementById('loginErr');
       if(err) err.textContent = '';
-      if(loginMode === 'admin'){
+      if(loginMode === 'admin' || loginMode === 'admin_view'){
         const pass = (document.getElementById('loginAdminPass')||{}).value || '';
-        const storedAdmin = localStorage.getItem(adminPassKey());
-        // SIRF Admin login password (3-tab password se alag)
+        const isView = (loginMode === 'admin_view');
+        const stored = localStorage.getItem(isView ? adminViewPassKey() : adminPassKey());
         let ok = false;
-        if(storedAdmin){
-          ok = (pass === storedAdmin);
+        if(stored){
+          ok = (pass === stored);
         } else {
-          // Pehli baar Admin password set nahi — andar aao, Security me set karo
-          ok = true;
+          // Pehli baar password set nahi — Edit: andar aao; View: pehle Security me set karo
+          if(!isView) ok = true;
+          else {
+            if(err) err.textContent = 'Pehle Admin (Edit) se login karke Security me Admin View password set karo';
+            return;
+          }
         }
         if(!ok){
-          if(err) err.textContent = 'Galat Admin password (Security → Admin Login Password)';
+          if(err) err.textContent = isView
+            ? 'Galat Admin View password (Security → Admin View Password)'
+            : 'Galat Admin Edit password (Security → Admin Login Password)';
           return;
         }
         const remA = document.getElementById('loginRememberAdmin');
-        if(remA && remA.checked){
-          saveSavedLogin({ mode: 'admin', adminPass: pass, auto: true });
+        if(!remA || remA.checked){
+          saveSavedLogin({ mode: isView ? 'admin_view' : 'admin', adminPass: pass, auto: true });
         } else {
           const prev = loadSavedLogin();
-          if(prev.mode === 'admin') clearSavedLogin();
+          if(prev.mode === 'admin' || prev.mode === 'admin_view') clearSavedLogin();
         }
-        setSession({ role: 'admin', at: Date.now() });
-        // 3-tab unlock NAHI — alag password maangega
-        protectedUnlocked = false;
+        setSession({ role: isView ? 'admin_view' : 'admin', at: Date.now() });
         liveSyncEnabled = true;
         hideLoginOverlay();
-        showStatus('Admin login OK — 3 tabs ke liye alag password lagega');
-        try { applyRolePermissions(); renderTable(); markUserEdited(); } catch(e) {}
+        try { refreshCurrentPeriodView(); markUserEdited(); } catch(e) {
+          try { applyRolePermissions(); renderTable(); } catch(err) {}
+        }
+        showStatus(isView ? 'Login: Admin View (sirf dekhna)' : 'Login: Admin Edit');
         return;
       }
       // Employee
       const code = String((document.getElementById('loginCode')||{}).value || '').trim().toUpperCase();
-      const pin = String((document.getElementById('loginPin')||{}).value || '').trim();
-      if(!code || !pin){
-        if(err) err.textContent = 'Code aur PIN dono likho';
+      const pin = String((document.getElementById('loginPin')||{}).value || '');
+      if(!code){
+        if(err) err.textContent = 'Employee code select/likho';
         return;
       }
       const pins = loadEmpPins();
-      if(!pins[code]){
-        if(err) err.textContent = 'Is Code ka PIN set nahi. Admin se Security tab me PIN set karwao.';
-        return;
-      }
-      if(pins[code] !== pin){
-        if(err) err.textContent = 'Galat PIN';
-        return;
+      if(pins && Object.keys(pins).length){
+        if(!pins[code] || String(pins[code]) !== pin){
+          if(err) err.textContent = 'Galat code ya PIN';
+          return;
+        }
       }
       const remE = document.getElementById('loginRememberEmp');
-      if(remE && remE.checked){
+      if(!remE || remE.checked){
         saveSavedLogin({ mode: 'employee', code: code, pin: pin, auto: true });
       } else {
         const prev = loadSavedLogin();
@@ -1073,9 +1113,12 @@
       setSession({ role: 'employee', code: code, at: Date.now() });
       liveSyncEnabled = true;
       hideLoginOverlay();
-      showStatus('Login: Code ' + code + ' — sirf apni row · cloud sync ON');
-      try { applyRolePermissions(); renderTable(); } catch(e) {}
+      try { refreshCurrentPeriodView(); } catch(e) {
+        try { applyRolePermissions(); renderTable(); } catch(err) {}
+      }
+      showStatus('Login: Employee ' + code);
     }
+
     function doLogout(){
       setSession(null);
       protectedUnlocked = false;
@@ -1091,32 +1134,22 @@
       if(!s){ bar.style.display = 'none'; return; }
       bar.style.display = 'flex';
       if(s.role === 'admin'){
-        txt.innerHTML = 'Role: <b>Admin</b>';
+        txt.innerHTML = 'Role: <b>Admin Edit</b>';
+      } else if(s.role === 'admin_view'){
+        txt.innerHTML = 'Role: <b>Admin View</b> (sirf dekhna)';
       } else {
-        const code = String(s.code || '').trim();
+        const code = String(s.code||'').trim().toUpperCase();
         let name = '';
         try {
-          if(data && data.employees){
-            for(let i=0; i<data.employees.length; i++){
-              if(String(data.employees[i].code||'').trim().toUpperCase() === code.toUpperCase()){
-                name = String(data.employees[i].name||'').trim();
-                break;
-              }
-            }
-          }
-          if(!name && typeof collectAllKnownEmployees === 'function'){
-            const list = collectAllKnownEmployees();
-            for(let i=0; i<list.length; i++){
-              if(String(list[i].code||'').trim().toUpperCase() === code.toUpperCase()){
-                name = String(list[i].name||'').trim();
-                break;
-              }
-            }
+          const emps = (typeof getMasterEmployees === 'function') ? getMasterEmployees() : (data && data.employees) || [];
+          for(let i=0;i<emps.length;i++){
+            if(String(emps[i].code||'').trim().toUpperCase() === code){ name = String(emps[i].name||'').trim(); break; }
           }
         } catch(e) {}
-        txt.innerHTML = '<b>'+esc(code)+'</b>'+(name ? ' <b>'+esc(name)+'</b>' : '');
+        txt.innerHTML = 'Role: <b>Employee</b> — Code ' + code + (name ? (' ' + name) : '');
       }
     }
+
 
     function applyRolePermissions(){
       const s = getSession();
@@ -1125,7 +1158,7 @@
       document.querySelectorAll('.tab-btn').forEach(function(b){
         const t = b.dataset.tab;
         if(!t) return;
-        if(emp && (t === 'rates' || t === 'settings' || t === 'security')){
+        if((emp || isAdminView()) && (t === 'rates' || t === 'settings' || t === 'security')){
           b.style.display = 'none';
         } else {
           b.style.display = '';
@@ -1386,6 +1419,7 @@
     function passKey(){ return 'att_clear_password'; }
     function tabsPassKey(){ return 'att_tabs_password'; }
     function adminPassKey(){ return 'att_admin_password'; }
+    function adminViewPassKey(){ return 'att_admin_view_password'; }
 
         function lockKey(y,m){ return 'att_lock_'+y+'_'+m; }
     function isMonthLocked(y,m){ return localStorage.getItem(lockKey(y,m)) === '1'; }
@@ -1660,7 +1694,7 @@
         notes: (data && data.notes) ? JSON.parse(JSON.stringify(data.notes)) : (base.notes ? JSON.parse(JSON.stringify(base.notes)) : {})
       };
       const daysInMonth = getDaysInMonth(currentYear, currentMonth);
-      const empMode = isEmployee();
+      const empMode = isEmployee() || isAdminView();
       for(let i=0; i<MAX_EMP; i++){
         const codeEl = document.getElementById('code_'+i);
         const nameEl = document.getElementById('name_'+i);
@@ -1743,7 +1777,7 @@
           if(typeof syncingFromCloud !== 'undefined' && syncingFromCloud) return;
           if(isMonthLocked(currentYear, currentMonth) && !isEmployee()) return;
           if(!document.getElementById('code_0')) return;
-          if(isEmployee()) return; // employee attendance save nahi
+          if(isEmployee() || isAdminView()) return; // view-only save nahi
           savePeriod({ silent: true });
         } catch(e) { console.error('live sync', e); }
       }, 350);
@@ -1822,7 +1856,7 @@
         if(isEmployee()) btnUn.style.display = 'none';
       }
       const days = getDaysInMonth(currentYear, currentMonth);
-      const empMode = isEmployee();
+      const empMode = isEmployee() || isAdminView();
       const adminMode = isAdmin();
       for(let i=0; i<MAX_EMP; i++){
         const codeEl = document.getElementById('code_'+i);
@@ -1975,7 +2009,7 @@
       if(!name) name = 'att';
 
       // Employee: rates/backup/settings/security band
-      if(isEmployee() && (name === 'rates' || name === 'settings' || name === 'security')){
+      if((isEmployee() || isAdminView()) && (name === 'rates' || name === 'settings' || name === 'security')){
         showStatus('Ye tab sirf Admin ke liye hai', true);
         return;
       }
@@ -2038,7 +2072,7 @@
         renderYearSummary();
       }
       if(name === 'totals'){ refreshTotalsEmpSelect(); renderGrandTotal(); }
-      if(name === 'security'){ try { renderEmpPinList(); updateAdminPassBadge(); updateTabsPassBadge(); } catch(e) {} }
+      if(name === 'security'){ try { renderEmpPinList(); updateAdminPassBadge(); try { updateAdminViewPassBadge(); } catch(e) {} updateAdminViewPassBadge(); updateTabsPassBadge(); } catch(e) {} }
       if(name === 'settings'){ try{ loadFirebaseForm(); }catch(e){} fillClearSelectors(); refreshClearPassBadge(); }
       if(name === 'backup') {
         const bs = document.getElementById('backupStatus');
@@ -2844,8 +2878,8 @@
     }
 
     function bulkFillMonth(){
-      if(isEmployee()){
-        showStatus('Sirf Admin attendance bhar sakta hai', true);
+      if(isEmployee() || isAdminView()){
+        showStatus('Sirf Admin Edit attendance bhar sakta hai', true);
         return;
       }
       const empIdx = parseInt(document.getElementById('bulkEmpSelect').value);
@@ -3989,7 +4023,7 @@ function saveRates(){
       const a = document.getElementById('newAdminPass'); if(a) a.value = '';
       const b = document.getElementById('confirmAdminPass'); if(b) b.value = '';
       const c = document.getElementById('currentAdminPass'); if(c) c.value = '';
-      updateAdminPassBadge();
+      updateAdminPassBadge(); try { updateAdminViewPassBadge(); } catch(e) {}
     }
     function updateAdminPassBadge(){
       const badge = document.getElementById('adminPassBadge');
@@ -3998,6 +4032,43 @@ function saveRates(){
       if(badge) badge.textContent = has ? 'Admin password: SET ✓' : 'Admin password: NOT SET (pehli baar set karo)';
       if(row) row.style.display = has ? 'flex' : 'none';
     }
+    function setAdminViewPassword(){
+      if(!isAdmin()){
+        showStatus('Sirf Admin Edit View password set kar sakta hai', true);
+        return;
+      }
+      const existing = localStorage.getItem(adminViewPassKey());
+      const cur = (document.getElementById('currentAdminViewPass')||{}).value || '';
+      const p1 = (document.getElementById('newAdminViewPass')||{}).value || '';
+      const p2 = (document.getElementById('confirmAdminViewPass')||{}).value || '';
+      const st = document.getElementById('adminViewPassStatus');
+      if(existing && cur !== existing){
+        if(st){ st.textContent = 'Current Admin View password galat'; st.style.color = '#c53030'; }
+        return;
+      }
+      if(!p1 || p1.length < 3){
+        if(st){ st.textContent = 'Kam se kam 3 characters'; st.style.color = '#c53030'; }
+        return;
+      }
+      if(p1 !== p2){
+        if(st){ st.textContent = 'Confirm match nahi karta'; st.style.color = '#c53030'; }
+        return;
+      }
+      localStorage.setItem(adminViewPassKey(), p1);
+      try { afterLocalWrite(adminViewPassKey()); } catch(e) {}
+      if(st){ st.textContent = 'Admin View password saved ✓'; st.style.color = '#276749'; }
+      try { updateAdminViewPassBadge(); } catch(e) {}
+      showStatus('Admin View password set ✓');
+    }
+    function updateAdminViewPassBadge(){
+      const badge = document.getElementById('adminViewPassBadge');
+      const row = document.getElementById('currentAdminViewPassRow');
+      const has = !!localStorage.getItem(adminViewPassKey());
+      if(badge) badge.textContent = has ? 'Admin View password: SET ✓' : 'Admin View password: NOT SET';
+      if(row) row.style.display = has ? 'flex' : 'none';
+    }
+
+
 
     function updateTabsPassBadge(){
       const badge = document.getElementById('tabsPassBadge');
@@ -4438,6 +4509,7 @@ function saveRates(){
       if(key === empCountKey()) return true;
       if(key === empPinsKey()) return true;
       if(key === adminPassKey()) return true;
+      if(typeof adminViewPassKey === "function" && key === adminViewPassKey()) return true;
       return key.indexOf('att_') === 0;
     }
     function safeLocalSet(key, val){
@@ -4752,7 +4824,7 @@ function saveRates(){
 
       // EMPLOYEE: attendance sirf cloud se dekho (local overwrite mat karo)
       try {
-        if(typeof isEmployee === 'function' && isEmployee() && isAttendancePeriodKey(key)){
+        if(((typeof isEmployee === 'function' && isEmployee()) || (typeof isAdminView === 'function' && isAdminView())) && isAttendancePeriodKey(key)){
           if(typeof safeLocalSet === 'function') safeLocalSet(key, String(remoteVal));
           else try { localStorage.setItem(key, String(remoteVal)); } catch(e) {}
           try { clearPendingPushKey(key); } catch(e) {}
@@ -4884,7 +4956,7 @@ function saveRates(){
       if(!fbReady || !fbDb || syncingFromCloud) return Promise.resolve();
       if(!isSyncableKey(key)) return Promise.resolve();
       // Employee login: attendance data cloud pe mat bhejo (sirf Admin fill)
-      if(typeof isEmployee === 'function' && isEmployee()){
+      if((typeof isEmployee === 'function' && isEmployee()) || (typeof isAdminView === 'function' && isAdminView())){
         if(typeof isAttendancePeriodKey === 'function' && isAttendancePeriodKey(key)){
           return Promise.resolve();
         }
